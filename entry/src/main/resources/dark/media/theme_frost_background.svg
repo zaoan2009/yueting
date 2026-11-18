@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280">
+  <defs>
+    <pattern id="frostGridDark" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M22 0v44M0 22h44" fill="none" stroke="#6BA3FF" stroke-width="1" opacity=".55"/>
+      <circle cx="22" cy="22" r="1.4" fill="#4A7CC8" opacity=".55"/>
+    </pattern>
+    <pattern id="frostDotsDark" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="5" cy="7" r="1" fill="#6BA3FF" opacity=".5"/>
+      <circle cx="18" cy="18" r="0.8" fill="#4A7CC8" opacity=".4"/>
+    </pattern>
+  </defs>
+  <rect width="720" height="1280" fill="#121820"/>
+  <rect width="720" height="1280" fill="url(#frostGridDark)" opacity=".24"/>
+  <rect width="720" height="1280" fill="url(#frostDotsDark)" opacity=".3"/>
+  <path d="M0 0h720v310C510 250 240 400 0 300Z" fill="#1C2838" opacity=".6"/>
+  <path d="M720 980c-210-80-470 30-720-10v310h720Z" fill="#243044" opacity=".32"/>
+  <g fill="none" stroke="#6BA3FF" stroke-width="1.5" opacity=".22">
+    <path d="M560 40c20 60-10 110-70 150m80-120c-30 10-50 40-40 70 20-20 40-40 40-70Zm-50 50c20 20 20 50 0 70 10-20 10-50 0-70Z"/>
+    <path d="M40 1120c50-10 100 20 130 70"/>
+  </g>
+</svg>

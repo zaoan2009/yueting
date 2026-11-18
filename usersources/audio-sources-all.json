@@ -1,0 +1,1217 @@
+[
+  {
+    "sourceFormat": "native",
+    "version": 1,
+    "name": "B站听书",
+    "url": "https://www.bilibili.com",
+    "group": "听书",
+    "comment": "B 站有声书 / 有声剧 / 评书 / 广播剧。书籍=视频，目录=合集分P；正文取音频流直链。搜索走 wbi 签名（js 计算），音频必须带 Referer。登录后可取更高音质",
+    "type": "audio",
+    "enabled": true,
+    "enabledExplore": true,
+    "rate": "30/60000",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+      "Referer": "https://www.bilibili.com/",
+      "Accept": "application/json"
+    },
+    "vars": [
+      {
+        "key": "quality",
+        "label": "音质",
+        "options": [
+          "高",
+          "中",
+          "低"
+        ],
+        "default": "中"
+      },
+      {
+        "key": "order",
+        "label": "排序",
+        "options": [
+          "综合",
+          "播放最多",
+          "最新"
+        ],
+        "default": "综合",
+        "filter": true
+      }
+    ],
+    "js": "function wbiKey(imgUrl, subUrl) {\n  const table = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52];\n  const raw = String(imgUrl || '').split('/').pop().split('.')[0] + String(subUrl || '').split('/').pop().split('.')[0];\n  let out = '';\n  for (const i of table) out += raw.charAt(i);\n  return out.slice(0, 32);\n}\nfunction wbiQuery(params, mkey) {\n  const keys = Object.keys(params).sort();\n  const parts = [];\n  for (const k of keys) {\n    const v = String(params[k] == null ? '' : params[k]).replace(/[!'()*]/g, '');\n    parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));\n  }\n  const q = parts.join('&');\n  return q + '&w_rid=' + native.md5(q + String(mkey || ''));\n}\nfunction biliQuery(keyword, page, order, mkey, ts) {\n  return wbiQuery({ search_type: 'video', keyword: keyword, page: page || 1, order: order || 'totalrank', wts: ts }, mkey);\n}\nfunction episodesOf(d, bvid) {\n  const out = [];\n  const season = (d && d.ugc_season) || {};\n  const sections = season.sections || [];\n  if (sections.length) {\n    for (const s of sections) {\n      for (const e of (s.episodes || [])) {\n        const pg = e.page || {};\n        out.push({ title: e.title || pg.part || ('P' + (pg.page || (out.length + 1))), bvid: e.bvid || bvid, cid: e.cid || pg.cid || 0, duration: pg.duration || 0 });\n      }\n    }\n    if (out.length) return out;\n  }\n  for (const p of ((d && d.pages) || [])) {\n    out.push({ title: p.part || ('P' + (p.page || (out.length + 1))), bvid: bvid, cid: p.cid || 0, duration: p.duration || 0 });\n  }\n  return out;\n}\nfunction pickAudio(dash, durl, quality) {\n  const list = (dash && dash.audio) || [];\n  if (list.length) {\n    const urlOf = (s) => (s && (s.baseUrl || s.base_url)) || '';\n    let sorted = list.slice().sort((a, b) => (a.bandwidth || 0) - (b.bandwidth || 0));\n    const fast = sorted.filter(s => urlOf(s).indexOf(':8082') < 0);\n    if (fast.length) sorted = fast;\n    let i = quality === '高' ? sorted.length - 1 : (quality === '低' ? 0 : Math.floor((sorted.length - 1) / 2));\n    if (i < 0) i = 0;\n    if (i > sorted.length - 1) i = sorted.length - 1;\n    const u = urlOf(sorted[i]);\n    if (u) return u;\n  }\n  for (const x of (durl || [])) { if (x.url) return x.url; }\n  const vid = (dash && dash.video) || [];\n  return vid.length ? (vid[0].baseUrl || '') : '';\n}\nfunction fmtDur(sec) {\n  const n = Math.max(0, Math.floor(Number(sec) || 0));\n  const p = (x) => String(x).padStart(2, '0');\n  const h = Math.floor(n / 3600), m = Math.floor((n % 3600) / 60), s = n % 60;\n  return h > 0 ? h + ':' + p(m) + ':' + p(s) : m + ':' + p(s);\n}",
+    "cache": {
+      "wbi": {
+        "url": "https://api.bilibili.com/x/web-interface/nav",
+        "value": "= wbiKey(data.data.wbi_img.img_url, data.data.wbi_img.sub_url)",
+        "ttl": 3600
+      }
+    },
+    "let": {
+      "ts": "= int(now() / 1000)",
+      "orderValue": "= lookup({ '综合': 'totalrank', '播放最多': 'click', '最新': 'pubdate' }, vars.order, 'totalrank')"
+    },
+    "login": {
+      "url": "https://passport.bilibili.com/login",
+      "cookies": [
+        "SESSDATA",
+        "bili_jct"
+      ],
+      "check": {
+        "url": "https://api.bilibili.com/x/web-interface/nav",
+        "ok": "= bool(data.data.isLogin)",
+        "name": "= default(data.data.uname, '')"
+      }
+    },
+    "search": {
+      "url": "= 'https://api.bilibili.com/x/web-interface/wbi/search/type?' + biliQuery(key, page, orderValue, wbi, ts)",
+      "fail": "= data ? (data.code != 0 ? 'B站搜索：' + str(data.message) : (data.data.v_voucher ? 'B站搜索触发了风控校验，稍后再试（也可点「去验证」完成验证）' : '')) : 'B站返回了非 JSON 内容（可能被风控，稍后重试或点「去验证」）'",
+      "list": "$.data.result[*]",
+      "fields": {
+        "name": "= stripHtml(default($.title, ''))",
+        "author": "$.author",
+        "kind": "= join(slice(compact(split(default($.tag, ''), ',')), 0, 3), ',')",
+        "coverUrl": "= replace(replace(default($.pic, ''), '^//', 'https://'), '^http://', 'https://')",
+        "intro": "= default($.description, '')",
+        "wordCount": "= $.play >= 10000 ? round($.play / 10000, 1) + '万播放' : str($.play) + '播放'",
+        "updateTime": "= formatDate($.pubdate)",
+        "type": "audio",
+        "bookUrl": "= 'https://www.bilibili.com/video/' + str($.bvid)"
+      }
+    },
+    "explore": {
+      "menus": [
+        {
+          "title": "听书频道"
+        },
+        {
+          "title": "有声小说",
+          "url": "= 'https://api.bilibili.com/x/web-interface/wbi/search/type?' + biliQuery('有声小说', page, orderValue, wbi, ts)"
+        },
+        {
+          "title": "多人有声剧",
+          "url": "= 'https://api.bilibili.com/x/web-interface/wbi/search/type?' + biliQuery('多人有声剧', page, orderValue, wbi, ts)"
+        },
+        {
+          "title": "评书",
+          "url": "= 'https://api.bilibili.com/x/web-interface/wbi/search/type?' + biliQuery('评书 全集', page, orderValue, wbi, ts)"
+        },
+        {
+          "title": "广播剧",
+          "url": "= 'https://api.bilibili.com/x/web-interface/wbi/search/type?' + biliQuery('广播剧', page, orderValue, wbi, ts)"
+        },
+        {
+          "title": "悬疑灵异",
+          "url": "= 'https://api.bilibili.com/x/web-interface/wbi/search/type?' + biliQuery('有声小说 悬疑', page, orderValue, wbi, ts)"
+        },
+        {
+          "title": "助眠",
+          "url": "= 'https://api.bilibili.com/x/web-interface/wbi/search/type?' + biliQuery('助眠 有声', page, orderValue, wbi, ts)"
+        },
+        {
+          "title": "合集更新"
+        },
+        {
+          "title": "合集长篇",
+          "url": "= 'https://api.bilibili.com/x/web-interface/wbi/search/type?' + biliQuery('有声小说 合集', page, orderValue, wbi, ts)"
+        },
+        {
+          "title": "完结精品",
+          "url": "= 'https://api.bilibili.com/x/web-interface/wbi/search/type?' + biliQuery('有声小说 完结', page, orderValue, wbi, ts)"
+        }
+      ],
+      "fail": "= data ? (data.code != 0 ? 'B站发现：' + str(data.message) : (data.data.v_voucher ? 'B站发现页触发了风控校验，稍后再试（也可点「去验证」完成验证）' : '')) : 'B站返回了非 JSON 内容（可能被风控，稍后重试或点「去验证」）'",
+      "list": "$.data.result[*]",
+      "fields": {
+        "name": "= stripHtml(default($.title, ''))",
+        "author": "$.author",
+        "kind": "= first(compact(split(default($.tag, ''), ',')))",
+        "coverUrl": "= replace(replace(default($.pic, ''), '^//', 'https://'), '^http://', 'https://')",
+        "intro": "= default($.description, '')",
+        "wordCount": "= $.play >= 10000 ? round($.play / 10000, 1) + '万播放' : str($.play) + '播放'",
+        "updateTime": "= formatDate($.pubdate)",
+        "type": "audio",
+        "bookUrl": "= 'https://www.bilibili.com/video/' + str($.bvid)"
+      }
+    },
+    "detail": {
+      "url": "= 'https://api.bilibili.com/x/web-interface/view?bvid=' + default(book.vars.bvid, match(book.bookUrl, 'BV[0-9A-Za-z]+', 0))",
+      "fail": "= data ? (data.code != 0 ? 'B站详情：' + str(data.message) : '') : 'B站详情接口返回了非 JSON 内容'",
+      "let": {
+        "d": "= data.data ?? {}",
+        "bvid": "= default(d.bvid, match(book.bookUrl, 'BV[0-9A-Za-z]+', 0))",
+        "eps": "= episodesOf(d, bvid)"
+      },
+      "fields": {
+        "name": "= default(d.title, '')",
+        "author": "= get(d.owner, 'name', '')",
+        "kind": "= join(compact([default(d.tname, ''), get(d.stat, 'view', 0) > 0 ? (get(d.stat, 'view', 0) >= 10000 ? round(get(d.stat, 'view', 0) / 10000, 1) + '万播放' : str(get(d.stat, 'view', 0)) + '播放') : '']), ',')",
+        "intro": "= default(d.desc, '')",
+        "coverUrl": "= replace(default(d.pic, ''), '^http://', 'https://')",
+        "wordCount": "= len(eps) > 0 ? '共 ' + str(len(eps)) + ' 集 / ' + fmtDur(sum(map(eps, e => get(e, 'duration', 0)))) : ''",
+        "lastChapter": "= len(eps) > 0 ? default(get(last(eps), 'title', ''), '') : ''",
+        "updateTime": "= formatDate(d.pubdate)",
+        "type": "audio"
+      },
+      "keep": {
+        "bvid": "= bvid"
+      }
+    },
+    "toc": {
+      "url": "= 'https://api.bilibili.com/x/web-interface/view?bvid=' + default(book.vars.bvid, match(book.bookUrl, 'BV[0-9A-Za-z]+', 0))",
+      "fail": "= data ? (data.code != 0 ? 'B站目录：' + str(data.message) : '') : 'B站目录接口返回了非 JSON 内容'",
+      "list": "= episodesOf(data.data ?? {}, default(book.vars.bvid, match(book.bookUrl, 'BV[0-9A-Za-z]+', 0)))",
+      "fields": {
+        "title": "$.title",
+        "url": "= 'https://api.bilibili.com/x/player/playurl?bvid=' + str($.bvid) + '&cid=' + str($.cid) + '&fnval=16'",
+        "tag": "= $.duration > 0 ? fmtDur($.duration) : ''"
+      }
+    },
+    "content": {
+      "fail": "= data ? (data.code == 0 ? '' : (data.code == -10403 || data.code == -403 || data.code == -110 ? '本集需要登录或大会员' : 'B站播放接口：' + str(data.message))) : 'B站播放接口返回了非 JSON 内容'",
+      "audio": "= pickAudio(data.data.dash, data.data.durl, vars.quality)",
+      "mediaHeaders": {
+        "Referer": "https://www.bilibili.com/",
+        "User-Agent": "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+        "Accept": "*/*"
+      },
+      "mediaError": "= data && data.code != 0 ? 'B站：' + str(data.message) : '这一集没有可取的音频流（可能是付费、会员或充电专属内容）'"
+    }
+  },
+  {
+    "sourceFormat": "native",
+    "version": 1,
+    "name": "播客有声书（免登录）",
+    "url": "https://itunes.apple.com",
+    "group": "听书",
+    "comment": "用苹果播客索引搜索，书籍地址=专辑 RSS；目录与音频取自 RSS 直链，全程免登录。实测喜马拉雅、蜻蜓的公开 RSS 可用；能否收听取决于该专辑 RSS 是否给出音频直链，付费专辑不给直链会被跳过",
+    "type": "audio",
+    "enabled": true,
+    "enabledExplore": true,
+    "rate": "20/1000",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+      "Accept": "application/json, application/xml, text/xml, */*"
+    },
+    "vars": [
+      {
+        "key": "limit",
+        "label": "每次结果数",
+        "options": [
+          "25",
+          "50",
+          "100"
+        ],
+        "default": "50"
+      },
+      {
+        "key": "region",
+        "label": "索引地区",
+        "options": [
+          "不限",
+          "中国",
+          "台湾",
+          "香港"
+        ],
+        "default": "不限",
+        "filter": true
+      }
+    ],
+    "scriptLimits": {
+      "requests": 10
+    },
+    "js": "function unesc(s) {\n  return String(s == null ? '' : s)\n    .replace(/^\\s*<!\\[CDATA\\[/, '').replace(/\\]\\]>\\s*$/, '')\n    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&apos;/g, \"'\")\n    .replace(/&#x([0-9a-fA-F]+);/g, (m, h) => String.fromCodePoint(parseInt(h, 16)))\n    .replace(/&#(\\d+);/g, (m, d) => String.fromCodePoint(parseInt(d, 10)))\n    .replace(/&amp;/g, '&')\n    .replace(/<[^>]+>/g, '')\n    .trim();\n}\nfunction rssTag(block, name) {\n  const m = new RegExp('<' + name + '(?:\\\\s[^>]*)?>([\\\\s\\\\S]*?)</' + name + '>', 'i').exec(block);\n  return m ? unesc(m[1]) : '';\n}\nfunction rssFeed(xml) {\n  const text = String(xml || '');\n  const first = text.indexOf('<item');\n  const headBlock = first < 0 ? text : text.slice(0, first);\n  const feed = { title: '', author: '', intro: '', coverUrl: '', updated: '', items: [] };\n  feed.title = rssTag(headBlock, 'title');\n  feed.intro = rssTag(headBlock, 'description');\n  feed.author = rssTag(headBlock, 'itunes:author') || rssTag(headBlock, 'generator') || '';\n  const img = /<itunes:image[^>]*href=\"([^\"]+)\"/i.exec(headBlock);\n  feed.coverUrl = img ? unesc(img[1]) : '';\n  feed.updated = rssTag(headBlock, 'lastBuildDate') || rssTag(headBlock, 'pubDate');\n  const blocks = text.split(/<item[\\s>]/).slice(1);\n  for (const b of blocks) {\n    const piece = b.split('</item>')[0];\n    const enc = /<enclosure[^>]*url=\"([^\"]+)\"/i.exec(piece);\n    const url = enc ? unesc(enc[1]) : '';\n    if (!url || !/^https?:/i.test(url)) continue;\n    feed.items.push({\n      title: rssTag(piece, 'title') || ('第 ' + (feed.items.length + 1) + ' 集'),\n      url: url,\n      duration: rssTag(piece, 'itunes:duration') || rssTag(piece, 'duration'),\n      time: rssTag(piece, 'pubDate')\n    });\n  }\n  return feed;\n}\nfunction feedOf(url) {\n  const key = 'rss:' + url;\n  const cached = cache.get(key);\n  if (cached) { try { return JSON.parse(cached); } catch (e) { } }\n  const r = http.get(url, { timeout: 30000 });\n  if (!r.ok) throw new Error('取专辑 RSS 失败：HTTP ' + str2(r.status) + ' ' + (r.error || ''));\n  const feed = rssFeed(r.body);\n  if (!feed.items.length) throw new Error('这个专辑的 RSS 里没有可播放的音频（付费或未开放 RSS 直链的专辑不提供）');\n  cache.put(key, JSON.stringify(feed), 1800);\n  return feed;\n}\nfunction str2(x) { return x == null ? '' : String(x); }\nfunction durSec(v) {\n  const s = String(v == null ? '' : v).trim();\n  if (!s) return 0;\n  if (s.indexOf(':') >= 0) {\n    let t = 0;\n    for (const p of s.split(':')) t = t * 60 + (parseInt(p, 10) || 0);\n    return t;\n  }\n  return parseInt(s, 10) || 0;\n}\nfunction fmtDur(sec) {\n  const n = Math.max(0, Math.floor(Number(sec) || 0));\n  const p = (x) => String(x).padStart(2, '0');\n  const h = Math.floor(n / 3600), m = Math.floor((n % 3600) / 60), s = n % 60;\n  return h > 0 ? h + ':' + p(m) + ':' + p(s) : m + ':' + p(s);\n}\nfunction fmtDate(v) {\n  const t = Date.parse(String(v == null ? '' : v));\n  if (!t) return '';\n  const d = new Date(t);\n  const p = (x) => String(x).padStart(2, '0');\n  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());\n}\nfunction baseOf(bookUrl) {\n  return String(bookUrl).split('#')[0].replace(/[?&]rssEp=[0-9]+/, '');\n}\nfunction epAddr(bookUrl, i) {\n  const base = baseOf(bookUrl);\n  return base + (base.indexOf('?') >= 0 ? '&' : '?') + 'rssEp=' + (i + 1);\n}\nfunction epIndex(chapterUrl) {\n  const m = /[?&]rssEp=([0-9]+)/.exec(String(chapterUrl || ''));\n  return m ? parseInt(m[1], 10) - 1 : -1;\n}\nfunction podcastDetail(ctx) {\n  const feed = feedOf(baseOf(ctx.book.bookUrl));\n  let total = 0;\n  for (const it of feed.items) total += durSec(it.duration);\n  const last = feed.items[feed.items.length - 1];\n  return {\n    name: feed.title,\n    author: feed.author,\n    intro: feed.intro,\n    coverUrl: feed.coverUrl,\n    wordCount: '共 ' + feed.items.length + ' 集 / ' + fmtDur(total),\n    lastChapter: last ? last.title : '',\n    updateTime: fmtDate(feed.updated) || fmtDate(last ? last.time : ''),\n    type: 'audio',\n    tocUrl: baseOf(ctx.book.bookUrl)\n  };\n}\nfunction podcastToc(ctx) {\n  const base = baseOf(ctx.book.bookUrl);\n  const feed = feedOf(base);\n  return feed.items.map((it, i) => ({\n    title: it.title,\n    url: epAddr(base, i),\n    tag: fmtDur(durSec(it.duration)) || fmtDate(it.time)\n  }));\n}\nfunction podcastContent(ctx) {\n  const feed = feedOf(baseOf(ctx.book.bookUrl));\n  let i = epIndex(ctx.chapter.url);\n  if (i < 0) i = Number(ctx.chapter.index || 0);\n  const it = feed.items[i];\n  if (!it) throw new Error('这一集已不在专辑 RSS 里，刷新目录后重试');\n  return { audio: it.url };\n}",
+    "let": {
+      "country": "= lookup({ '不限': '', '中国': 'cn', '台湾': 'tw', '香港': 'hk' }, vars.region, '')",
+      "countryParam": "= country ? '&country=' + country : ''"
+    },
+    "search": {
+      "url": "= 'https://itunes.apple.com/search?media=podcast&term=' + urlencode(key) + '&limit=' + default(vars.limit, '50') + countryParam",
+      "fail": "= data ? (data.resultCount == null ? '苹果播客索引没有返回结果结构' : (data.resultCount == 0 ? '没有搜到相关有声书' : '')) : '索引接口返回了非 JSON 内容'",
+      "list": "$.results[*]",
+      "fields": {
+        "name": "$.collectionName",
+        "author": "$.artistName",
+        "kind": "$.genres[*]",
+        "coverUrl": "$.artworkUrl600",
+        "wordCount": "= $.trackCount > 0 ? '共 ' + str($.trackCount) + ' 集' : ''",
+        "updateTime": "= formatDate($.releaseDate, 'yyyy-MM-dd')",
+        "type": "audio",
+        "bookUrl": "$.feedUrl"
+      }
+    },
+    "explore": {
+      "menus": [
+        {
+          "title": "有声小说"
+        },
+        {
+          "title": "言情都市",
+          "url": "= 'https://itunes.apple.com/search?media=podcast&term=' + urlencode('有声小说 言情') + '&limit=' + default(vars.limit, '50') + countryParam"
+        },
+        {
+          "title": "悬疑灵异",
+          "url": "= 'https://itunes.apple.com/search?media=podcast&term=' + urlencode('有声小说 悬疑') + '&limit=' + default(vars.limit, '50') + countryParam"
+        },
+        {
+          "title": "玄幻仙侠",
+          "url": "= 'https://itunes.apple.com/search?media=podcast&term=' + urlencode('有声小说 玄幻') + '&limit=' + default(vars.limit, '50') + countryParam"
+        },
+        {
+          "title": "评书 · 有声剧"
+        },
+        {
+          "title": "评书",
+          "url": "= 'https://itunes.apple.com/search?media=podcast&term=' + urlencode('评书 全集') + '&limit=' + default(vars.limit, '50') + countryParam"
+        },
+        {
+          "title": "多人有声剧",
+          "url": "= 'https://itunes.apple.com/search?media=podcast&term=' + urlencode('多人有声剧') + '&limit=' + default(vars.limit, '50') + countryParam"
+        },
+        {
+          "title": "经典 · 出版"
+        },
+        {
+          "title": "经典文学",
+          "url": "= 'https://itunes.apple.com/search?media=podcast&term=' + urlencode('经典文学 有声') + '&limit=' + default(vars.limit, '50') + countryParam"
+        },
+        {
+          "title": "历史",
+          "url": "= 'https://itunes.apple.com/search?media=podcast&term=' + urlencode('有声 历史 全集') + '&limit=' + default(vars.limit, '50') + countryParam"
+        },
+        {
+          "title": "助眠 · 儿童"
+        },
+        {
+          "title": "助眠",
+          "url": "= 'https://itunes.apple.com/search?media=podcast&term=' + urlencode('助眠 故事') + '&limit=' + default(vars.limit, '50') + countryParam"
+        },
+        {
+          "title": "儿童睡前故事",
+          "url": "= 'https://itunes.apple.com/search?media=podcast&term=' + urlencode('儿童睡前故事') + '&limit=' + default(vars.limit, '50') + countryParam"
+        }
+      ],
+      "list": "$.results[*]",
+      "fields": {
+        "name": "$.collectionName",
+        "author": "$.artistName",
+        "kind": "$.genres[*]",
+        "coverUrl": "$.artworkUrl600",
+        "wordCount": "= $.trackCount > 0 ? '共 ' + str($.trackCount) + ' 集' : ''",
+        "updateTime": "= formatDate($.releaseDate, 'yyyy-MM-dd')",
+        "type": "audio",
+        "bookUrl": "$.feedUrl"
+      }
+    },
+    "detail": {
+      "script": "podcastDetail"
+    },
+    "toc": {
+      "script": "podcastToc"
+    },
+    "content": {
+      "script": "podcastContent",
+      "mediaHeaders": {
+        "User-Agent": "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+        "Accept": "*/*"
+      },
+      "mediaError": "= '这一集没有可播放的音频地址（付费专辑的 RSS 不给直链，需在站点 App 内购买）'"
+    }
+  },
+  {
+    "sourceFormat": "native",
+    "version": 1,
+    "name": "酷我畅听有声书",
+    "url": "https://www.kuwo.cn",
+    "group": "听书",
+    "comment": "酷我畅听（酷我长音频）的专辑型有声书。搜索 / 详情 / 目录走 wapi.kuwo.cn，音频直链走 kuwo.cn/openapi，全部免登录、无签名、返回标准 JSON。目录每页 100 集，用 nextUrl 列表写法并发取完全量。付费判断：接口的 pay 位标记与能否播放不一致（实测标 pay=8913032/16515324 的集照样能播），但 isListenFee=true 或 payInfo.play=='1111' 与「接口拒绝给地址」实测 122 集完全一致，目录据此给付费集打 isPay 并在时长后面标「需付费」；取不到地址的集只给原因，不做绕过（付费集换任何音质/类型参数接口都返回 code=-1）。搜索：wapi searchAlbumBykeyWord 会对中文拆词做极宽模糊匹配（例如搜「棺香美人」会返回「黑人抬棺」「香草美人」），源侧用书名/主播/简介必须包含完整关键词过滤；过滤后为空则提示站内可能无此书，避免把无关专辑当结果。",
+    "type": "audio",
+    "enabled": true,
+    "enabledExplore": true,
+    "rate": "20/1000",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+      "Referer": "https://www.kuwo.cn/",
+      "Accept": "application/json"
+    },
+    "vars": [
+      {
+        "key": "pageSize",
+        "label": "每次结果数",
+        "options": [
+          "20",
+          "30",
+          "50"
+        ],
+        "default": "30"
+      }
+    ],
+    "let": {
+      "api": "= 'https://wapi.kuwo.cn/api/www'"
+    },
+    "search": {
+      "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode(key) + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'",
+      "fail": "= data ? (int(default(data.code, 0)) != 200 ? '酷我搜索：' + str(default(default(data.msg, data.message), '接口返回失败')) : (len(filter(default(data.data.albumList, []), a => contains(trim(htmlDecode(default(a.album, ''))), key) || contains(trim(htmlDecode(default(a.artist, ''))), key) || contains(trim(htmlDecode(default(a.albuminfo, ''))), key))) == 0 ? '酷我没有与「' + key + '」书名/主播/简介对得上的有声书（接口常返回拆词模糊结果，已过滤；这本书可能不在酷我）' : '')) : '酷我搜索接口返回了非 JSON 内容（可能被风控，稍后重试或点「去验证」）'",
+      "list": "= filter(default(data.data.albumList, []), a => contains(trim(htmlDecode(default(a.album, ''))), key) || contains(trim(htmlDecode(default(a.artist, ''))), key) || contains(trim(htmlDecode(default(a.albuminfo, ''))), key))",
+      "fields": {
+        "name": "= trim(htmlDecode(default($.album, '')))",
+        "author": "= trim(htmlDecode(default($.artist, '')))",
+        "intro": "= trim(htmlDecode(default($.albuminfo, '')))",
+        "coverUrl": "= default($.pic, '')",
+        "updateTime": "= formatDate($.releaseDate, 'yyyy-MM-dd')",
+        "type": "audio",
+        "bookUrl": "= 'https://www.kuwo.cn/album_detail/' + str($.albumid)"
+      }
+    },
+    "explore": {
+      "menus": [
+        {
+          "title": "听书推荐"
+        },
+        {
+          "title": "有声小说",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('有声小说') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "评书",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('评书 有声') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "广播剧",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('广播剧') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "多人有声剧",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('多人有声剧') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "完结有声书",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('有声书 完结') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "按题材"
+        },
+        {
+          "title": "悬疑",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('悬疑 有声小说') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "武侠",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('武侠 有声小说') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "历史",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('历史 故事') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "情感",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('情感 故事') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "民间故事",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('民间故事') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "儿童",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('儿童故事') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        },
+        {
+          "title": "睡前",
+          "url": "= api + '/search/searchAlbumBykeyWord?key=' + urlencode('睡前故事') + '&pn=' + page + '&rn=' + vars.pageSize + '&httpsStatus=1'"
+        }
+      ],
+      "fail": "= data ? (int(default(data.code, 0)) != 200 ? '酷我发现页：' + str(default(default(data.msg, data.message), '接口返回失败')) : '') : '酷我搜索接口返回了非 JSON 内容（可能被风控，稍后重试或点「去验证」）'",
+      "list": "$.data.albumList[*]",
+      "fields": {
+        "name": "= trim(htmlDecode(default($.album, '')))",
+        "author": "= trim(htmlDecode(default($.artist, '')))",
+        "intro": "= trim(htmlDecode(default($.albuminfo, '')))",
+        "coverUrl": "= default($.pic, '')",
+        "updateTime": "= formatDate($.releaseDate, 'yyyy-MM-dd')",
+        "type": "audio",
+        "bookUrl": "= 'https://www.kuwo.cn/album_detail/' + str($.albumid)"
+      }
+    },
+    "detail": {
+      "url": "= api + '/album/albumInfo?albumId=' + default(book.vars.albumId, match(book.bookUrl, 'album_detail/(\\d+)', 1)) + '&pn=1&rn=100&httpsStatus=1'",
+      "fail": "= data ? (int(default(data.code, 0)) != 200 ? '酷我详情：' + str(default(data.msg, '接口返回失败')) : '') : '酷我详情接口返回了非 JSON 内容'",
+      "let": {
+        "d": "= data.data ?? {}",
+        "eps": "= default(d.musicList, [])"
+      },
+      "fields": {
+        "name": "= trim(htmlDecode(default(d.album, '')))",
+        "author": "= trim(htmlDecode(default(d.artist, '')))",
+        "intro": "= trim(htmlDecode(default(d.albuminfo, '')))",
+        "coverUrl": "= default(d.pic, '')",
+        "kind": "= join(compact([default(d.lang, ''), int(default(d.playCnt, 0)) > 0 ? round(int(d.playCnt) / 10000, 1) + '万播放' : '']), ',')",
+        "wordCount": "= int(default(d.total, len(eps))) > 0 ? '共 ' + str(int(default(d.total, len(eps)))) + ' 集' : ''",
+        "lastChapter": "= len(eps) > 0 && int(default(d.total, 0)) <= len(eps) ? default(get(last(eps), 'name', ''), '') : ''",
+        "updateTime": "= formatDate(d.releaseDate, 'yyyy-MM-dd')",
+        "type": "audio"
+      },
+      "keep": {
+        "albumId": "= str(default(d.albumid, ''))"
+      }
+    },
+    "toc": {
+      "url": "= api + '/album/albumInfo?albumId=' + default(book.vars.albumId, match(book.bookUrl, 'album_detail/(\\d+)', 1)) + '&pn=1&rn=100&httpsStatus=1'",
+      "retry": 2,
+      "fail": "= data ? (int(default(data.code, 0)) != 200 ? '酷我目录：' + str(default(data.msg, '接口返回失败')) : '') : '酷我目录接口返回了非 JSON 内容'",
+      "list": "$.data.musicList[*]",
+      "fields": {
+        "title": "= trim(htmlDecode(default($.name, '')))",
+        "url": "= 'https://kuwo.cn/openapi/v1/www/music/playUrl?mid=' + str($.rid) + '&type=music&quality=128k'",
+        "tag": "= default($.songTimeMinutes, '') + (bool($.isListenFee) || default(get($.payInfo, 'play', ''), '') == '1111' ? ' 需付费' : '')",
+        "isPay": "= bool($.isListenFee) || default(get($.payInfo, 'play', ''), '') == '1111'"
+      },
+      "nextUrl": "= map(range(max(0, ceil(int(default(data.data.total, 0)) / 100) - 1)), i => api + '/album/albumInfo?albumId=' + default(book.vars.albumId, match(book.bookUrl, 'album_detail/(\\d+)', 1)) + '&pn=' + (i + 2) + '&rn=100&httpsStatus=1')",
+      "batch": 4
+    },
+    "content": {
+      "retry": 2,
+      "fail": "= data ? (int(default(data.code, 0)) == 200 ? '' : (contains(str(default(data.msg, '')), '付费') || contains(str(default(data.msg, '')), '会员') ? '这一集酷我要付费或会员才能听，接口不给免登录地址（不做绕过，去酷我 App 内购买即可）' : (int(default(data.code, 0)) == -1001 ? '这一集没有可播放的音频（可能已下架，或需要会员 / 付费购买）' : '酷我音频接口：' + str(default(data.msg, '接口返回失败'))))) : '酷我音频接口返回了非 JSON 内容（可能被风控，稍后重试或点「去验证」）'",
+      "audio": "= default(data.data.url, '')",
+      "mediaHeaders": {
+        "User-Agent": "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+        "Accept": "*/*"
+      },
+      "mediaError": "= int(default(data.code, 0)) == 200 ? '音频接口没有给出地址（这一集可能需要会员或已下架）' : '酷我：' + str(default(data.msg, '音频接口没有返回地址'))"
+    },
+    "presetRevision": 2
+  },
+  {
+    "sourceFormat": "native",
+    "version": 1,
+    "name": "蜻蜓FM听书",
+    "url": "https://www.qingting.fm",
+    "group": "听书",
+    "comment": "蜻蜓FM 的专辑型有声书。搜索走 search.qingting.fm/v3/search（include=channel_ondemand，专辑维度、可翻页），详情与目录走 webapi.qingting.fm（目录每页 30 集，用 nextUrl 列表写法并发取完全量），正文取节目接口的 audioUrl，全部免登录、无签名、返回标准 JSON。音频地址是带时效签名的跳转地址（实测改时间戳会被 403），所以每集都在切集时现取现用；蜻蜓标为未购买的集直接给出原因，不做绕过",
+    "type": "audio",
+    "enabled": true,
+    "enabledExplore": true,
+    "rate": "20/1000",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+      "Referer": "https://www.qingting.fm/",
+      "Accept": "application/json"
+    },
+    "vars": [
+      {
+        "key": "pageSize",
+        "label": "每次结果数",
+        "options": [
+          "20",
+          "30",
+          "50",
+          "100"
+        ],
+        "default": "30"
+      }
+    ],
+    "js": "function fmtDur(sec) {\n  const n = Math.max(0, Math.floor(Number(sec) || 0));\n  const p = (x) => String(x).padStart(2, '0');\n  const h = Math.floor(n / 3600), m = Math.floor((n % 3600) / 60), s = n % 60;\n  return h > 0 ? h + ':' + p(m) + ':' + p(s) : m + ':' + p(s);\n}\n",
+    "let": {
+      "api": "= 'https://webapi.qingting.fm'",
+      "sApi": "= 'https://search.qingting.fm/v3/search'"
+    },
+    "search": {
+      "url": "= sApi + '?include=channel_ondemand&k=' + urlencode(key) + '&page=' + str(page) + '&pagesize=' + vars.pageSize",
+      "fail": "= data ? (int(default(data.errcode, -1)) != 0 ? '蜻蜓搜索：' + str(default(data.errmsg, '接口返回失败')) : (len(default(data.data.data.docs, [])) == 0 ? '蜻蜓没有搜到相关有声书（试试书名、主播名，或「有声小说」「评书」这类宽泛词）' : '')) : '蜻蜓搜索接口返回了非 JSON 内容（可能被风控，稍后重试或点「去验证」）'",
+      "list": "$.data.data.docs[*]",
+      "fields": {
+        "name": "= trim(default($.title, ''))",
+        "author": "= trim(default($.podcaster, ''))",
+        "intro": "= trim(default($.description, ''))",
+        "coverUrl": "= replace(default($.cover, ''), '^http://', 'https://')",
+        "kind": "= default($.playcount, '') != '' ? str($.playcount) + '次播放' : ''",
+        "wordCount": "= int(default($.program_count, 0)) > 0 ? '共 ' + str(int($.program_count)) + ' 集' : ''",
+        "updateTime": "= formatDate($.updatetime, 'yyyy-MM-dd')",
+        "type": "audio",
+        "bookUrl": "= 'https://m.qingting.fm/vchannels/' + str($.id)"
+      }
+    },
+    "explore": {
+      "menus": [
+        {
+          "title": "榜单",
+          "url": "= api + '/api/mobile/rank/hotSaleWeekly'",
+          "list": "$.rankinglist[*]",
+          "fields": {
+            "name": "= trim(default($.title, ''))",
+            "intro": "= trim(default($.desc, ''))",
+            "coverUrl": "= replace(default($.imgUrl, ''), '^http://', 'https://')",
+            "kind": "= default($.playCount, '') != '' ? str($.playCount) + '播放' : ''",
+            "wordCount": "= int(default($.programCount, 0)) > 0 ? '共 ' + str(int($.programCount)) + ' 集' : ''",
+            "type": "audio",
+            "bookUrl": "= default($.urlScheme, '') != '' ? 'https://m.qingting.fm' + $.urlScheme : ''"
+          }
+        },
+        {
+          "title": "官方推荐",
+          "url": "= api + '/api/mobile/rank/'",
+          "list": "$.rankinglist[*]",
+          "fields": {
+            "name": "= trim(default($.title, ''))",
+            "intro": "= trim(default($.desc, ''))",
+            "coverUrl": "= replace(default($.imgUrl, ''), '^http://', 'https://')",
+            "kind": "= default($.playCount, '') != '' ? str($.playCount) + '播放' : ''",
+            "wordCount": "= int(default($.programCount, 0)) > 0 ? '共 ' + str(int($.programCount)) + ' 集' : ''",
+            "type": "audio",
+            "bookUrl": "= default($.urlScheme, '') != '' ? 'https://m.qingting.fm' + $.urlScheme : ''"
+          }
+        },
+        {
+          "title": "分类"
+        },
+        {
+          "title": "有声小说",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('有声小说') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "评书",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('评书') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "相声",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('相声') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "广播剧",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('广播剧') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "悬疑",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('悬疑 有声小说') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "武侠",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('武侠 有声小说') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "历史",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('历史') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "三国",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('三国') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "盗墓",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('盗墓') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "民间故事",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('民间故事') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "情感",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('情感故事') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "儿童",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('儿童故事') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        },
+        {
+          "title": "助眠",
+          "url": "= sApi + '?include=channel_ondemand&k=' + urlencode('助眠') + '&page=' + str(page) + '&pagesize=' + vars.pageSize"
+        }
+      ],
+      "fail": "= data ? (data.errcode != null ? (int(data.errcode) != 0 ? '蜻蜓发现：' + str(default(data.errmsg, '接口返回失败')) : (len(default(data.data.data.docs, [])) == 0 ? '这个分类没有搜到内容，换一个试试' : '')) : (len(default(data.rankinglist, [])) == 0 ? '蜻蜓榜单接口没有返回内容' : '')) : '蜻蜓接口返回了非 JSON 内容（可能被风控，稍后重试或点「去验证」）'",
+      "list": "$.data.data.docs[*]",
+      "fields": {
+        "name": "= trim(default($.title, ''))",
+        "author": "= trim(default($.podcaster, ''))",
+        "intro": "= trim(default($.description, ''))",
+        "coverUrl": "= replace(default($.cover, ''), '^http://', 'https://')",
+        "kind": "= default($.playcount, '') != '' ? str($.playcount) + '次播放' : ''",
+        "wordCount": "= int(default($.program_count, 0)) > 0 ? '共 ' + str(int($.program_count)) + ' 集' : ''",
+        "updateTime": "= formatDate($.updatetime, 'yyyy-MM-dd')",
+        "type": "audio",
+        "bookUrl": "= 'https://m.qingting.fm/vchannels/' + str($.id)"
+      }
+    },
+    "detail": {
+      "url": "= api + '/api/mobile/channels/' + default(book.vars.channelId, match(book.bookUrl, '/vchannels/(\\d+)', 1))",
+      "fail": "= data ? (default(data.channel, '') == '' ? '蜻蜓没有这本专辑的信息（专辑可能已下架，或者地址不对）' : '') : '蜻蜓详情接口返回了非 JSON 内容'",
+      "fields": {
+        "name": "= trim(default($.channel.title, ''))",
+        "author": "= join(default($.channel.podcasters[*].name, []), '、')",
+        "intro": "= trim(default($.channel.description, ''))",
+        "coverUrl": "= replace(default($.channel.cover, ''), '^http://', 'https://')",
+        "kind": "= join(compact([default($.channel.vip_label, ''), default($.channel.playcount, '') != '' ? str($.channel.playcount) + '次播放' : '']), ',')",
+        "status": "= int(default($.channel.finished, 0)) == 1 ? '完结' : '连载中'",
+        "wordCount": "= int(default($.channel.program_count, 0)) > 0 ? '共 ' + str(int($.channel.program_count)) + ' 集' : ''",
+        "updateTime": "= formatDate(default($.channel.channel_update_time, ''), 'yyyy-MM-dd')",
+        "type": "audio",
+        "tocUrl": "= api + '/api/mobile/player/channels/' + str(default($.channel.id, default(book.vars.channelId, match(book.bookUrl, '/vchannels/(\\d+)', 1)))) + '/pages/1'"
+      },
+      "keep": {
+        "channelId": "= str(default($.channel.id, ''))"
+      }
+    },
+    "toc": {
+      "fail": "= data ? (len(default(data.programs, [])) == 0 ? '蜻蜓没有取到这部剧集的列表（专辑可能已下架，或需要会员才能列出）' : '') : '蜻蜓目录接口返回了非 JSON 内容'",
+      "list": "$.programs[*]",
+      "fields": {
+        "title": "= trim(default($.title, ''))",
+        "url": "= 'https://webapi.qingting.fm/api/mobile/channels/' + str($.channelId) + '/programs/' + str($.programId)",
+        "tag": "= int(default($.duration, 0)) > 0 ? fmtDur($.duration) : ''"
+      },
+      "nextUrl": "= map(range(max(0, ceil(int(default(data.total, 0)) / max(1, int(default(data.pageSize, 30)))) - 1)), i => 'https://webapi.qingting.fm/api/mobile/player/channels/' + default(book.vars.channelId, match(book.bookUrl, '/vchannels/(\\d+)', 1)) + '/pages/' + str(i + 2))",
+      "batch": 6
+    },
+    "content": {
+      "let": {
+        "pi": "= data.programInfo ?? {}"
+      },
+      "fail": "= data ? (default(data.programInfo, '') == '' ? '蜻蜓没有返回这一集的信息（该集可能已下架）' : (str(default(pi.saleStatus, '')) == 'free' ? '' : '这一集需要购买或会员才能收听（蜻蜓标记为 ' + str(default(pi.saleStatus, '未知')) + '），这里不做绕过')) : '蜻蜓音频接口返回了非 JSON 内容'",
+      "audio": "= str(default(pi.saleStatus, '')) == 'free' ? default(pi.audioUrl, '') : ''",
+      "mediaHeaders": {
+        "User-Agent": "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+        "Accept": "*/*"
+      },
+      "mediaError": "= '这一集没有可播放的音频（可能需要购买或会员，也可能已下架）'"
+    }
+  },
+  {
+    "sourceFormat": "native",
+    "version": 1,
+    "name": "懒人听书",
+    "url": "https://www.lanrentingshu.com",
+    "group": "听书",
+    "comment": "懒人听书（lanrentingshu.com / m.lrts.me）。官网已改版为 SPA：发现用免登录的首页推荐与相似推荐；详情/目录走 /api/book/detail 与 /api/book/resource（免登录）；搜索与取听地址 /api/search/searchBookAlbum、/api/gateway/getListenPath 需要登录后的站点 Cookie（书源管理→登录，手机号验证码）。不做付费/会员绕过；标付费或 cantListen 的集在目录标出。旧全网榜单 HTML/Ajax 已失效，不在此源恢复榜单。",
+    "type": "audio",
+    "enabled": true,
+    "enabledExplore": true,
+    "rate": "20/1000",
+    "presetRevision": 1,
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+      "Referer": "https://www.lanrentingshu.com/",
+      "Accept": "application/json"
+    },
+    "vars": [
+      {
+        "key": "pageSize",
+        "label": "目录每页",
+        "options": [
+          "20",
+          "50",
+          "100"
+        ],
+        "default": "50"
+      }
+    ],
+    "js": "function fmtDur(sec) {\n  const n = Math.max(0, Math.floor(Number(sec) || 0));\n  const p = (x) => String(x).padStart(2, '0');\n  const h = Math.floor(n / 3600), m = Math.floor((n % 3600) / 60), s = n % 60;\n  return h > 0 ? h + ':' + p(m) + ':' + p(s) : m + ':' + p(s);\n}\nfunction lrBookId(url) {\n  const m = String(url || '').match(/\\/(?:book|album)\\/(\\d+)/);\n  return m ? m[1] : '';\n}\nfunction lrEntityType(url) {\n  return String(url || '').indexOf('/album/') >= 0 ? 2 : 1;\n}\nfunction lrPlayPath(data) {\n  const root = data && (data.data != null ? data.data : data);\n  if (!root) return '';\n  if (root.path) return String(root.path);\n  if (root.listenPath) return String(root.listenPath);\n  const list = root.list || data.list || [];\n  if (list.length && list[0] && list[0].path) return String(list[0].path);\n  return '';\n}\nfunction lrNeedLogin(data) {\n  const s = Number((data && (data.status != null ? data.status : data.apiStatus)) || 0);\n  return s === 485 || s === 9999;\n}\n",
+    "let": {
+      "api": "= 'https://www.lanrentingshu.com/api'",
+      "host": "= 'https://www.lanrentingshu.com'",
+      "deviceId": "= '37215094826'"
+    },
+    "login": {
+      "url": "https://www.lanrentingshu.com/",
+      "cookies": [],
+      "check": {
+        "url": "= api + '/user/getUserInfo?_t=' + str(int(now()))",
+        "ok": "= int(default(data.status, -1)) == 0",
+        "name": "= default(get(default(data.data, data), 'nickname', ''), default(get(default(data.data, data), 'nickName', ''), '懒人用户'))"
+      }
+    },
+    "search": {
+      "url": "= api + '/search/searchBookAlbum?keyword=' + urlencode(key) + '&searchId=' + urlencode(str(int(now())) + '-' + str(page)) + '&sort=1'",
+      "fail": "= data ? (lrNeedLogin(data) ? '懒人听书搜索需要先登录（书源管理 → 懒人听书 → 登录）' : (int(default(data.status, 0)) != 0 && int(default(data.apiStatus, 0)) != 0 ? '懒人搜索：' + str(default(data.msg, '接口返回失败')) : '')) : '懒人搜索接口返回了非 JSON 内容'",
+      "list": "= filter(default(data.data.bookAlbums, default(data.bookAlbums, [])), e => int(default(e.entityType, 1)) != 2)",
+      "fields": {
+        "name": "= trim(htmlDecode(default($.realName, default($.name, ''))))",
+        "author": "= trim(join(compact([default($.author, ''), default($.announcer, '') ? '主播:' + str($.announcer) : '']), ' · '))",
+        "intro": "= trim(htmlDecode(default($.desc, default($.recReason, ''))))",
+        "coverUrl": "= replace(default($.cover, ''), '^http://', 'https://')",
+        "kind": "= int(default($.sections, 0)) > 0 ? '共' + str($.sections) + '集' : ''",
+        "wordCount": "= int(default($.playCount, default($.plays, 0))) >= 10000 ? round(int(default($.playCount, default($.plays, 0))) / 10000, 1) + '万播放' : (int(default($.playCount, default($.plays, 0))) > 0 ? str(int(default($.playCount, default($.plays, 0)))) + '播放' : '')",
+        "type": "audio",
+        "bookUrl": "= host + '/book/' + str(default($.id, default($.entityId, '')))"
+      }
+    },
+    "explore": {
+      "menus": [
+        {
+          "title": "首页推荐",
+          "url": "= api + '/home/webHomePage?deviceId=' + deviceId",
+          "list": "$.data.recommendEntityList[*]",
+          "fields": {
+            "name": "= trim(htmlDecode(default($.bookAlbum.realName, default($.bookAlbum.name, ''))))",
+            "author": "= trim(join(compact([default($.bookAlbum.author, ''), default($.bookAlbum.announcer, '') ? '主播:' + str($.bookAlbum.announcer) : '']), ' · '))",
+            "intro": "= trim(htmlDecode(default($.bookAlbum.recReason, default($.bookAlbum.desc, ''))))",
+            "coverUrl": "= replace(default($.bookAlbum.cover, ''), '^http://', 'https://')",
+            "type": "audio",
+            "bookUrl": "= host + '/book/' + str(default($.bookAlbum.entityId, default($.id, '')))"
+          }
+        },
+        {
+          "title": "评书精选",
+          "url": "= api + '/common/similarRecommend?entityId=6522&entityType=1&reqType=8&reqSourceType=1&typePageSize=40"
+        },
+        {
+          "title": "玄幻奇幻",
+          "url": "= api + '/common/similarRecommend?entityId=598&entityType=1&reqType=8&reqSourceType=1&typePageSize=40"
+        },
+        {
+          "title": "相声曲艺",
+          "url": "= api + '/common/similarRecommend?entityId=1001&entityType=1&reqType=8&reqSourceType=1&typePageSize=40"
+        },
+        {
+          "title": "都市脑洞",
+          "url": "= api + '/common/similarRecommend?entityId=94326793&entityType=1&reqType=8&reqSourceType=1&typePageSize=40"
+        },
+        {
+          "title": "历史军事",
+          "url": "= api + '/common/similarRecommend?entityId=11538380&entityType=1&reqType=8&reqSourceType=1&typePageSize=40"
+        }
+      ],
+      "fail": "= data ? (lrNeedLogin(data) ? '懒人发现需要登录' : (int(default(data.status, 0)) != 0 && int(default(data.apiStatus, 0)) != 0 ? '懒人发现：' + str(default(data.msg, '接口返回失败')) : '')) : '懒人发现接口返回了非 JSON 内容'",
+      "list": "$.data.recommendsByListen[*]",
+      "fields": {
+        "name": "= trim(htmlDecode(default($.realName, default($.name, ''))))",
+        "author": "= trim(join(compact([default($.author, ''), default($.announcer, '') ? '主播:' + str($.announcer) : '']), ' · '))",
+        "intro": "= trim(htmlDecode(default($.desc, default($.recReason, ''))))",
+        "coverUrl": "= replace(default($.cover, ''), '^http://', 'https://')",
+        "kind": "= int(default($.sections, 0)) > 0 ? '共' + str($.sections) + '集' : ''",
+        "wordCount": "= int(default($.playCount, 0)) >= 10000 ? round(int($.playCount) / 10000, 1) + '万播放' : (int(default($.playCount, 0)) > 0 ? str(int($.playCount)) + '播放' : '')",
+        "type": "audio",
+        "bookUrl": "= host + '/book/' + str($.id)"
+      }
+    },
+    "detail": {
+      "url": "= api + '/book/detail?id=' + default(book.vars.bookId, lrBookId(book.bookUrl)) + '&type=' + str(lrEntityType(book.bookUrl)) + '&reqMask=1&source=1'",
+      "fail": "= data ? (lrNeedLogin(data) ? '懒人详情需要登录' : (default(data.data.detail, '') == '' ? '懒人详情：' + str(default(data.msg, '未找到书籍')) : '')) : '懒人详情接口返回了非 JSON 内容'",
+      "let": {
+        "d": "= data.data.detail ?? {}"
+      },
+      "fields": {
+        "name": "= trim(htmlDecode(default(d.name, '')))",
+        "author": "= trim(join(compact([default(d.author, ''), default(d.announcer, '') ? '主播:' + str(d.announcer) : '']), ' · '))",
+        "intro": "= trim(htmlDecode(default(d.desc, '')))",
+        "coverUrl": "= replace(default(d.bestCover, default(d.cover, '')), '^http://', 'https://')",
+        "kind": "= join(compact([default(d.fatherTypeName, ''), int(default(d.sections, 0)) > 0 ? '共' + str(d.sections) + '集' : '', default(d.commentMean, '') != '' ? '评分' + str(d.commentMean) : '']), ' · ')",
+        "wordCount": "= int(default(d.play, 0)) >= 10000 ? round(int(d.play) / 10000, 1) + '万播放' : (int(default(d.play, 0)) > 0 ? str(int(d.play)) + '播放' : '')",
+        "lastChapter": "",
+        "type": "audio"
+      },
+      "keep": {
+        "bookId": "= str(d.id)",
+        "entityType": "= str(lrEntityType(book.bookUrl))",
+        "sections": "= str(int(default(d.sections, 0)))"
+      }
+    },
+    "toc": {
+      "url": "= api + '/book/resource?bookId=' + default(book.vars.bookId, lrBookId(book.bookUrl)) + '&pageNum=1&pageSize=' + vars.pageSize + '&sortType=0&isUp=0'",
+      "retry": 2,
+      "fail": "= data ? (lrNeedLogin(data) ? '懒人目录需要登录' : (len(default(data.list, [])) == 0 ? '懒人目录为空（可能已下架）' : '')) : '懒人目录接口返回了非 JSON 内容'",
+      "list": "$.list[*]",
+      "fields": {
+        "title": "= trim(htmlDecode(default($.name, '第' + str($.section) + '集')))",
+        "url": "= api + '/gateway/getListenPath?entityType=' + default(book.vars.entityType, str(lrEntityType(book.bookUrl))) + '&entityId=' + default(book.vars.bookId, lrBookId(book.bookUrl)) + '&section=' + str($.section) + '&resId=' + str($.id) + '&trackId=' + str(default($.tmeId, '')) + '&opType=0&quality=1'",
+        "tag": "= join(compact([int(default($.length, 0)) > 0 ? fmtDur($.length) : '', int(default($.payType, 0)) > 0 || int(default($.feeType, 0)) > 0 || int(default($.cantListen, 0)) == 1 ? '需付费' : '']), ' ')",
+        "isPay": "= int(default($.payType, 0)) > 0 || int(default($.feeType, 0)) > 0 || int(default($.cantListen, 0)) == 1"
+      },
+      "nextUrl": "= map(range(max(0, ceil(int(default(data.sections, default(book.vars.sections, 0))) / max(1, int(vars.pageSize))) - 1)), i => api + '/book/resource?bookId=' + default(book.vars.bookId, lrBookId(book.bookUrl)) + '&pageNum=' + (i + 2) + '&pageSize=' + vars.pageSize + '&sortType=0&isUp=0')",
+      "batch": 4
+    },
+    "content": {
+      "retry": 2,
+      "fail": "= data ? (lrNeedLogin(data) ? '播放需要先登录懒人听书（书源管理 → 懒人听书 → 登录）' : (lrPlayPath(data) != '' ? '' : '懒人未返回播放地址：' + str(default(data.msg, '可能需付费/会员或已下架')))) : '懒人播放接口返回了非 JSON 内容'",
+      "audio": "= lrPlayPath(data)",
+      "mediaHeaders": {
+        "User-Agent": "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+        "Referer": "https://www.lanrentingshu.com/",
+        "Accept": "*/*"
+      },
+      "mediaError": "= lrNeedLogin(data) ? '请先登录懒人听书账号' : '这一集没有可播放地址（可能需付费、会员或已下架）'"
+    }
+  },
+  {
+    "bookSourceName": "听友FM",
+    "bookSourceGroup": "听书",
+    "bookSourceType": 1,
+    "bookSourceUrl": "https://tingyou.fm",
+    "bookSourceComment": "听友FM · v3（基于 docs/sources/tingyou-fm-v3.json）。发现/详情/目录/播放走 json.hgeuz.cn 加密接口 + /api/play_token；官网首页现为听书影视聚合，默认 /search 偏影视，听书请优先用发现分类；搜索页规则保留，无结果时单源测试会回退发现链路。音源约 48kbps 立体声 MP3。",
+    "bookUrlPattern": "json\\.hgeuz\\.cn/tyfm/json_v1/album_info/\\d+|tingyou\\.fm/albums/\\d+",
+    "concurrentRate": "60/60000",
+    "customButton": false,
+    "customOrder": 0,
+    "enabled": true,
+    "enabledCookieJar": false,
+    "enabledExplore": true,
+    "eventListener": false,
+    "exploreScreen": "",
+    "exploreUrl": "[{\"title\": \"有声小说\", \"url\": \"\"}, {\"title\": \"玄幻奇幻\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/46/popular/p{{page}}\"}, {\"title\": \"武侠小说\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/11/popular/p{{page}}\"}, {\"title\": \"言情通俗\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/19/popular/p{{page}}\"}, {\"title\": \"恐怖惊悚\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/14/popular/p{{page}}\"}, {\"title\": \"官场商战\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/17/popular/p{{page}}\"}, {\"title\": \"历史军事\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/15/popular/p{{page}}\"}, {\"title\": \"百家讲坛\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/9/popular/p{{page}}\"}, {\"title\": \"刑侦反腐\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/16/popular/p{{page}}\"}, {\"title\": \"有声文学\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/10/popular/p{{page}}\"}, {\"title\": \"人物纪实\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/18/popular/p{{page}}\"}, {\"title\": \"广播剧\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/36/popular/p{{page}}\"}, {\"title\": \"英文读物\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/22/popular/p{{page}}\"}, {\"title\": \"轻音清心\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/23/popular/p{{page}}\"}, {\"title\": \"二人转\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/31/popular/p{{page}}\"}, {\"title\": \"健康养生\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/33/popular/p{{page}}\"}, {\"title\": \"综艺娱乐\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/34/popular/p{{page}}\"}, {\"title\": \"头条\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/40/popular/p{{page}}\"}, {\"title\": \"戏曲\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/38/popular/p{{page}}\"}, {\"title\": \"脱口秀\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/41/popular/p{{page}}\"}, {\"title\": \"商业财经\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/42/popular/p{{page}}\"}, {\"title\": \"亲子教育\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/43/popular/p{{page}}\"}, {\"title\": \"教育培训\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/44/popular/p{{page}}\"}, {\"title\": \"时尚生活\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/45/popular/p{{page}}\"}, {\"title\": \"童话寓言\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/20/popular/p{{page}}\"}, {\"title\": \"相声小品\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/21/popular/p{{page}}\"}, {\"title\": \"未分类\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/47/popular/p{{page}}\"}, {\"title\": \"评书\", \"url\": \"\"}, {\"title\": \"单田芳\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/1/popular/p{{page}}\"}, {\"title\": \"刘兰芳\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/2/popular/p{{page}}\"}, {\"title\": \"田连元\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/3/popular/p{{page}}\"}, {\"title\": \"袁阔成\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/4/popular/p{{page}}\"}, {\"title\": \"连丽如\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/5/popular/p{{page}}\"}, {\"title\": \"孙一\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/8/popular/p{{page}}\"}, {\"title\": \"王子封臣\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/30/popular/p{{page}}\"}, {\"title\": \"马长辉\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/25/popular/p{{page}}\"}, {\"title\": \"昊儒书场\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/26/popular/p{{page}}\"}, {\"title\": \"王军\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/27/popular/p{{page}}\"}, {\"title\": \"王玥波\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/28/popular/p{{page}}\"}, {\"title\": \"石连君\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/29/popular/p{{page}}\"}, {\"title\": \"粤语评书\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/12/popular/p{{page}}\"}, {\"title\": \"关永超\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/35/popular/p{{page}}\"}, {\"title\": \"张少佐\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/6/popular/p{{page}}\"}, {\"title\": \"田战义\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/7/popular/p{{page}}\"}, {\"title\": \"其他评书\", \"url\": \"https://json.hgeuz.cn/tyfm/json_v1/types/13/popular/p{{page}}\"}]",
+    "header": "{\n  \"User-Agent\": \"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36\",\n  \"Accept-Language\": \"zh-CN,zh;q=0.9\"\n}",
+    "jsLib": "/* 听友FM 书源脚本库 v3 —— 纯 JavaScript（不依赖 Java 类导入）\n *\n * 相对 v2 的改动（为「起播快、切章不卡」）：\n *  1) 去掉 /api/me 访客会话与 Authorization：/api/play_token 只需指纹 Cookie 即可匿名调用，\n *     少一次往返、也不再有过期重试路径；\n *  2) 章节地址改为真实 https（album_info + ?chapter=N，约 1KB），\n *     使应用 ChapterCacheService 的音频预加载生效（该预加载只处理 source.type === 'url'）；\n *  3) 播放地址按「专辑-集」写入带 TTL 的 cache，回看/重播不再重新换令牌。\n *\n * 仍然保留：XChaCha20-Poly1305 解 payload、AES-256-GCM 加密请求体、SM4 生成指纹 Cookie。\n */\nvar TY_KEY = 'ea9d9d4f9a983fe6f6382f29c7b46b8d6dc47abc6da36662e6ddff8c78902f65';\nvar TY_JSON = 'https://json.hgeuz.cn/tyfm/json_v1';\nvar TY_SITE = 'https://tingyou.fm';\nvar TY_UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36';\nvar TY_TTL = 1800;\n\n/* ---------- 字节与字符串 ---------- */\nfunction tyBytes(hex) {\n  var s = String(hex), n = s.length >> 1, o = new Uint8Array(n), i;\n  for (i = 0; i < n; i++) o[i] = parseInt(s.substr(i * 2, 2), 16);\n  return o;\n}\nfunction tyHex(u8) {\n  var s = '', i, b;\n  for (i = 0; i < u8.length; i++) { b = u8[i]; s += (b < 16 ? '0' : '') + b.toString(16); }\n  return s;\n}\nfunction tyUtf8(str) {\n  var s = String(str), out = [], i, c, c2, cp;\n  for (i = 0; i < s.length; i++) {\n    c = s.charCodeAt(i);\n    if (c < 128) out.push(c);\n    else if (c < 2048) out.push(192 | (c >> 6), 128 | (c & 63));\n    else if (c < 55296 || c > 57343) out.push(224 | (c >> 12), 128 | ((c >> 6) & 63), 128 | (c & 63));\n    else {\n      c2 = s.charCodeAt(++i); cp = 1024 * (c - 55296) + (c2 - 56320) + 65536;\n      out.push(240 | (cp >> 18), 128 | ((cp >> 12) & 63), 128 | ((cp >> 6) & 63), 128 | (cp & 63));\n    }\n  }\n  return new Uint8Array(out);\n}\nfunction tyText(u8) {\n  var s = '', i = 0, b, b1, b2, b3, cp;\n  while (i < u8.length) {\n    b = u8[i++];\n    if (b < 128) s += String.fromCharCode(b);\n    else if (b < 224) { b1 = u8[i++]; s += String.fromCharCode(((b & 31) << 6) | (b1 & 63)); }\n    else if (b < 240) { b1 = u8[i++]; b2 = u8[i++]; s += String.fromCharCode(((b & 15) << 12) | ((b1 & 63) << 6) | (b2 & 63)); }\n    else {\n      b1 = u8[i++]; b2 = u8[i++]; b3 = u8[i++];\n      cp = ((b & 7) << 18) | ((b1 & 63) << 12) | ((b2 & 63) << 6) | (b3 & 63);\n      cp -= 65536; s += String.fromCharCode(55296 | (cp >> 10), 56320 | (cp & 1023));\n    }\n  }\n  return s;\n}\nvar TY_B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';\nfunction tyB64(u8) {\n  var s = '', i, n = u8.length, c;\n  for (i = 0; i < n; i += 3) {\n    c = u8[i] << 16;\n    if (i + 1 < n) c |= u8[i + 1] << 8;\n    if (i + 2 < n) c |= u8[i + 2];\n    s += TY_B64.charAt((c >> 18) & 63) + TY_B64.charAt((c >> 12) & 63);\n    s += (i + 1 < n) ? TY_B64.charAt((c >> 6) & 63) : '=';\n    s += (i + 2 < n) ? TY_B64.charAt(c & 63) : '=';\n  }\n  return s;\n}\n\n/* ---------- AES-256-GCM（加密请求体） ---------- */\nvar TY_SBOX = null, TY_XT = null;\nvar TY_RCON = [1, 2, 4, 8, 16, 32, 64, 128, 27, 54, 108, 216, 171, 77];\nfunction tyXtime(a) { a <<= 1; if (a & 256) a ^= 0x11b; return a & 255; }\nfunction tyAesInit() {\n  if (TY_SBOX) return;\n  var log = new Uint8Array(256), alog = new Uint8Array(256), inv = new Uint8Array(256);\n  TY_XT = new Uint8Array(256); TY_SBOX = new Uint8Array(256);\n  var v = 1, i, b;\n  for (i = 0; i < 255; i++) { alog[i] = v; log[v] = i; v = tyXtime(v) ^ v; }\n  for (i = 1; i < 256; i++) inv[i] = alog[(255 - log[i]) % 255];\n  for (i = 0; i < 256; i++) {\n    b = inv[i];\n    TY_SBOX[i] = (b ^ (((b << 1) | (b >>> 7)) & 255) ^ (((b << 2) | (b >>> 6)) & 255) ^\n      (((b << 3) | (b >>> 5)) & 255) ^ (((b << 4) | (b >>> 4)) & 255) ^ 0x63) & 255;\n  }\n  for (i = 0; i < 256; i++) TY_XT[i] = tyXtime(i);\n}\nfunction tyAesKey(kb) {\n  var w = [], i, t;\n  for (i = 0; i < 8; i++) w.push((kb[4 * i] | (kb[4 * i + 1] << 8) | (kb[4 * i + 2] << 16) | (kb[4 * i + 3] << 24)) >>> 0);\n  for (i = 8; i < 60; i++) {\n    t = w[i - 1];\n    if (i % 8 === 0) {\n      t = (TY_SBOX[(t >>> 8) & 255] | (TY_SBOX[(t >>> 16) & 255] << 8) |\n        (TY_SBOX[(t >>> 24) & 255] << 16) | (TY_SBOX[t & 255] << 24)) >>> 0;\n      t = (t ^ TY_RCON[(i / 8 | 0) - 1]) >>> 0;\n    } else if (i % 8 === 4) {\n      t = (TY_SBOX[t & 255] | (TY_SBOX[(t >>> 8) & 255] << 8) | (TY_SBOX[(t >>> 16) & 255] << 16) | (TY_SBOX[(t >>> 24) & 255] << 24)) >>> 0;\n    }\n    w.push((w[i - 8] ^ t) >>> 0);\n  }\n  return w;\n}\nfunction tyAesBlock(w, s) {\n  var i, r, c, t, a0, a1, a2, a3, x0, x1, x2, x3;\n  for (i = 0; i < 16; i++) s[i] = s[i] ^ ((w[i >> 2] >>> ((i & 3) * 8)) & 255);\n  for (r = 1; r <= 14; r++) {\n    for (i = 0; i < 16; i++) s[i] = TY_SBOX[s[i]];\n    t = [s[0], s[5], s[10], s[15], s[4], s[9], s[14], s[3], s[8], s[13], s[2], s[7], s[12], s[1], s[6], s[11]];\n    for (i = 0; i < 16; i++) s[i] = t[i];\n    if (r !== 14) {\n      for (c = 0; c < 4; c++) {\n        a0 = s[4 * c]; a1 = s[4 * c + 1]; a2 = s[4 * c + 2]; a3 = s[4 * c + 3];\n        x0 = TY_XT[a0]; x1 = TY_XT[a1]; x2 = TY_XT[a2]; x3 = TY_XT[a3];\n        s[4 * c] = x0 ^ x1 ^ a1 ^ a2 ^ a3;\n        s[4 * c + 1] = a0 ^ x1 ^ x2 ^ a2 ^ a3;\n        s[4 * c + 2] = a0 ^ a1 ^ x2 ^ x3 ^ a3;\n        s[4 * c + 3] = x0 ^ a0 ^ a1 ^ a2 ^ x3;\n      }\n    }\n    for (i = 0; i < 16; i++) s[i] = s[i] ^ ((w[(r << 2) + (i >> 2)] >>> ((i & 3) * 8)) & 255);\n  }\n  return s;\n}\nfunction tyGhash(h, buf) {\n  var x = new Uint8Array(16), z = new Uint8Array(16), v = new Uint8Array(16), i, j, bi, bit, carry;\n  for (bi = 0; bi < buf.length; bi += 16) {\n    for (i = 0; i < 16; i++) x[i] = x[i] ^ buf[bi + i];\n    for (i = 0; i < 16; i++) { z[i] = 0; v[i] = h[i]; }\n    for (i = 0; i < 128; i++) {\n      bit = (x[i >> 3] >> (7 - (i & 7))) & 1;\n      if (bit) for (j = 0; j < 16; j++) z[j] = z[j] ^ v[j];\n      carry = v[15] & 1;\n      for (j = 15; j > 0; j--) v[j] = ((v[j] >>> 1) | ((v[j - 1] & 1) << 7)) & 255;\n      v[0] = (v[0] >>> 1) & 255;\n      if (carry) v[0] = v[0] ^ 0xe1;\n    }\n    for (i = 0; i < 16; i++) x[i] = z[i];\n  }\n  return x;\n}\n/* 输出 [1][iv12][ct][tag16] */\nfunction tyGcmSeal(keyBytes, iv12, plain) {\n  tyAesInit();\n  var w = tyAesKey(keyBytes);\n  var h = tyAesBlock(w, new Uint8Array(16));\n  var j0 = new Uint8Array(16), i, off;\n  for (i = 0; i < 12; i++) j0[i] = iv12[i];\n  j0[15] = 1;\n  var counter = new Uint8Array(16);\n  for (i = 0; i < 16; i++) counter[i] = j0[i];\n  counter[15] = 2;\n  var ct = new Uint8Array(plain.length), ks;\n  for (off = 0; off < plain.length; off += 16) {\n    ks = tyAesBlock(w, counter.slice());\n    for (i = 0; i < 16 && off + i < plain.length; i++) ct[off + i] = plain[off + i] ^ ks[i];\n    for (i = 15; i >= 12; i--) { counter[i] = (counter[i] + 1) & 255; if (counter[i] !== 0) break; }\n  }\n  var pad = (16 - ct.length % 16) % 16;\n  var buf = new Uint8Array(ct.length + pad + 16);\n  buf.set(ct, 0);\n  var blen = ct.length * 8, base = ct.length + pad + 8;\n  var hi = Math.floor(blen / 4294967296), lo = blen - hi * 4294967296;\n  for (i = 0; i < 4; i++) buf[base + i] = (hi >>> (8 * (3 - i))) & 255;\n  for (i = 0; i < 4; i++) buf[base + 4 + i] = (lo >>> (8 * (3 - i))) & 255;\n  var g = tyGhash(h, buf);\n  var ej = tyAesBlock(w, j0.slice());\n  var out = new Uint8Array(1 + 12 + ct.length + 16);\n  out[0] = 1;\n  out.set(iv12, 1);\n  out.set(ct, 13);\n  for (i = 0; i < 16; i++) out[13 + ct.length + i] = g[i] ^ ej[i];\n  return out;\n}\n\n/* ---------- ChaCha20 / HChaCha20（解 payload） ---------- */\nfunction tyRotl(x, n) { return ((x << n) | (x >>> (32 - n))) >>> 0; }\nfunction tyCcRun(x) {\n  var i;\n  function q(a, b, c, d) {\n    x[a] = (x[a] + x[b]) >>> 0; x[d] = tyRotl((x[d] ^ x[a]) >>> 0, 16);\n    x[c] = (x[c] + x[d]) >>> 0; x[b] = tyRotl((x[b] ^ x[c]) >>> 0, 12);\n    x[a] = (x[a] + x[b]) >>> 0; x[d] = tyRotl((x[d] ^ x[a]) >>> 0, 8);\n    x[c] = (x[c] + x[d]) >>> 0; x[b] = tyRotl((x[b] ^ x[c]) >>> 0, 7);\n  }\n  for (i = 0; i < 10; i++) {\n    q(0, 4, 8, 12); q(1, 5, 9, 13); q(2, 6, 10, 14); q(3, 7, 11, 15);\n    q(0, 5, 10, 15); q(1, 6, 11, 12); q(2, 7, 8, 13); q(3, 4, 9, 14);\n  }\n}\nfunction tyCcBlock(key, ctr, nonce12) {\n  var s = new Uint32Array(16), x = new Uint32Array(16), i, w;\n  s[0] = 0x61707865; s[1] = 0x3320646e; s[2] = 0x79622d32; s[3] = 0x6b206574;\n  for (i = 0; i < 8; i++) s[4 + i] = (key[i * 4] | (key[i * 4 + 1] << 8) | (key[i * 4 + 2] << 16) | (key[i * 4 + 3] << 24)) >>> 0;\n  s[12] = ctr >>> 0;\n  for (i = 0; i < 3; i++) s[13 + i] = (nonce12[i * 4] | (nonce12[i * 4 + 1] << 8) | (nonce12[i * 4 + 2] << 16) | (nonce12[i * 4 + 3] << 24)) >>> 0;\n  for (i = 0; i < 16; i++) x[i] = s[i];\n  tyCcRun(x);\n  var out = new Uint8Array(64);\n  for (i = 0; i < 16; i++) {\n    w = (x[i] + s[i]) >>> 0;\n    out[i * 4] = w & 255; out[i * 4 + 1] = (w >>> 8) & 255; out[i * 4 + 2] = (w >>> 16) & 255; out[i * 4 + 3] = (w >>> 24) & 255;\n  }\n  return out;\n}\nfunction tyHChaCha(key, nonce16) {\n  var s = new Uint32Array(16), i, w;\n  s[0] = 0x61707865; s[1] = 0x3320646e; s[2] = 0x79622d32; s[3] = 0x6b206574;\n  for (i = 0; i < 8; i++) s[4 + i] = (key[i * 4] | (key[i * 4 + 1] << 8) | (key[i * 4 + 2] << 16) | (key[i * 4 + 3] << 24)) >>> 0;\n  for (i = 0; i < 4; i++) s[12 + i] = (nonce16[i * 4] | (nonce16[i * 4 + 1] << 8) | (nonce16[i * 4 + 2] << 16) | (nonce16[i * 4 + 3] << 24)) >>> 0;\n  tyCcRun(s);\n  var out = new Uint8Array(32);\n  var ws = [s[0], s[1], s[2], s[3], s[12], s[13], s[14], s[15]];\n  for (i = 0; i < 8; i++) {\n    w = ws[i];\n    out[i * 4] = w & 255; out[i * 4 + 1] = (w >>> 8) & 255; out[i * 4 + 2] = (w >>> 16) & 255; out[i * 4 + 3] = (w >>> 24) & 255;\n  }\n  return out;\n}\n/* XChaCha20-Poly1305 解开 ct||tag（公开内容接口，不校验 tag） */\nfunction tyXOpen(keyBytes, nonce24, body) {\n  var sub = tyHChaCha(keyBytes, nonce24.subarray(0, 16));\n  var n12 = new Uint8Array(12), i, off = 0, ks, c = 1;\n  for (i = 0; i < 8; i++) n12[4 + i] = nonce24[16 + i];\n  var out = new Uint8Array(body.length);\n  while (off < body.length) {\n    ks = tyCcBlock(sub, c, n12); c++;\n    for (i = 0; i < 64 && off < body.length; i++) { out[off] = body[off] ^ ks[i]; off++; }\n  }\n  return out;\n}\n\n/* ---------- SM4-ECB（生成指纹 Cookie） ---------- */\nvar TY_S4 = [214,144,233,254,204,225,61,183,22,182,20,194,40,251,44,5,43,103,154,118,42,190,4,195,170,68,19,38,73,134,6,153,156,66,80,244,145,239,152,122,51,84,11,67,237,207,172,98,228,179,28,169,201,8,232,149,128,223,148,250,117,143,63,166,71,7,167,252,243,115,23,186,131,89,60,25,230,133,79,168,104,107,129,178,113,100,218,139,248,235,15,75,112,86,157,53,30,36,14,94,99,88,209,162,37,34,124,59,1,33,120,135,212,0,70,87,159,211,39,82,76,54,2,231,160,196,200,158,234,191,138,210,64,199,56,181,163,247,242,206,249,97,21,161,224,174,93,164,155,52,26,85,173,147,50,48,245,140,177,227,29,246,226,46,130,102,202,96,192,41,35,171,13,83,78,111,213,219,55,69,222,253,142,47,3,255,106,114,109,108,91,81,141,27,175,146,187,221,188,127,17,217,92,65,31,16,90,216,10,193,49,136,165,205,123,189,45,116,208,18,184,229,180,176,137,105,151,74,12,150,119,126,101,185,241,9,197,110,198,132,24,240,125,236,58,220,77,32,121,238,95,62,215,203,57,72];\nvar TY_FK = [2746333894, 1453994832, 1736282519, 2993693404];\nvar TY_CK = [462357,472066609,943670861,1415275113,1886879365,2358483617,2830087869,3301692121,3773296373,4228057617,404694573,876298825,1347903077,1819507329,2291111581,2762715833,3234320085,3705924337,4177462797,337322537,808926789,1280531041,1752135293,2223739545,2695343797,3166948049,3638552301,4110090761,269950501,741554753,1213159005,1684763257];\nfunction tySm4T(x) {\n  var t = [x >>> 24 & 255, x >>> 16 & 255, x >>> 8 & 255, 255 & x], i;\n  for (i = 0; i < 4; i++) t[i] = TY_S4[t[i]];\n  var n = (t[0] << 24 | t[1] << 16 | t[2] << 8 | t[3]) >>> 0;\n  return ((n ^ (n << 2 >>> 0) ^ (n << 10 >>> 0) ^ (n << 18 >>> 0) ^ (n << 24 >>> 0))) >>> 0;\n}\nfunction tySm4Rk(key) {\n  var t = ((key[0] << 24 | key[1] << 16 | key[2] << 8 | key[3]) ^ TY_FK[0]) >>> 0;\n  var n = ((key[4] << 24 | key[5] << 16 | key[6] << 8 | key[7]) ^ TY_FK[1]) >>> 0;\n  var a = ((key[8] << 24 | key[9] << 16 | key[10] << 8 | key[11]) ^ TY_FK[2]) >>> 0;\n  var o = ((key[12] << 24 | key[13] << 16 | key[14] << 8 | key[15]) ^ TY_FK[3]) >>> 0;\n  var r = new Uint32Array(32), i, e, s;\n  for (i = 0; i < 32; i++) {\n    e = ((n ^ a ^ o ^ TY_CK[i]) >>> 0);\n    e = tySm4T(e);\n    s = ((t ^ e) >>> 0);\n    r[i] = s; t = n; n = a; a = o; o = s;\n  }\n  return r;\n}\nfunction tySm4Block(rk, blk) {\n  var a = ((blk[0] << 24 | blk[1] << 16 | blk[2] << 8 | blk[3]) >>> 0);\n  var o = ((blk[4] << 24 | blk[5] << 16 | blk[6] << 8 | blk[7]) >>> 0);\n  var r = ((blk[8] << 24 | blk[9] << 16 | blk[10] << 8 | blk[11]) >>> 0);\n  var i = ((blk[12] << 24 | blk[13] << 16 | blk[14] << 8 | blk[15]) >>> 0);\n  var f, e, t;\n  for (f = 0; f < 32; f++) {\n    e = ((o ^ r ^ i ^ rk[f]) >>> 0);\n    e = tySm4T(e);\n    t = ((a ^ e) >>> 0);\n    a = o; o = r; r = i; i = t;\n  }\n  var d = new Uint8Array(16), w = [i, r, o, a], k;\n  for (k = 0; k < 4; k++) {\n    d[k * 4] = (w[k] >>> 24) & 255; d[k * 4 + 1] = (w[k] >>> 16) & 255;\n    d[k * 4 + 2] = (w[k] >>> 8) & 255; d[k * 4 + 3] = 255 & w[k];\n  }\n  return d;\n}\nfunction tySm4Ecb(key, plain) {\n  var pad = 16 - plain.length % 16;\n  var n = new Uint8Array(plain.length + pad), out = new Uint8Array(n.length), rk = tySm4Rk(key), o;\n  n.set(plain, 0);\n  for (o = 0; o < pad; o++) n[plain.length + o] = pad;\n  for (o = 0; o < n.length; o += 16) out.set(tySm4Block(rk, n.subarray(o, o + 16)), o);\n  return out;\n}\n\n/* ---------- 站点 payload ---------- */\nfunction tyPayloadKey(text) {\n  var m = String(text).match(/payloadKey\\s*:\\s*[\"']([a-f0-9]{64})[\"']/i);\n  return m ? m[1] : TY_KEY;\n}\n/* 响应为 {\"payload\":\"hex\"} 时解密，否则原样返回 */\nfunction tyOpen(text, keyHint) {\n  var s = String(text), m = s.match(/\"payload\"\\s*:\\s*\"([0-9a-fA-F]+)\"/);\n  if (!m) return s;\n  var buf = tyBytes(m[1]), ct = buf.subarray(25, buf.length - 16), i;\n  if (buf[0] === 2) {\n    var rev = new Uint8Array(ct.length);\n    for (i = 0; i < ct.length; i++) rev[i] = ct[ct.length - 1 - i];\n    ct = rev;\n  }\n  return tyText(tyXOpen(tyBytes(keyHint || TY_KEY), buf.subarray(1, 25), ct));\n}\nfunction tyJson(text, keyHint) {\n  return JSON.parse(tyOpen(text, keyHint));\n}\n\n/* ---------- 请求与指纹 ---------- */\nfunction tyDay() {\n  var d = new Date(), m = d.getMonth() + 1, a = d.getDate();\n  return '' + d.getFullYear() + (m < 10 ? '0' : '') + m + (a < 10 ? '0' : '') + a;\n}\nfunction tyHead() {\n  return {\n    'User-Agent': TY_UA,\n    'Referer': TY_SITE + '/',\n    'Origin': TY_SITE,\n    'X-Payload-Version': '1'\n  };\n}\nfunction tyBody(r) {\n  if (r && typeof r.body === 'function') return String(r.body());\n  return String(r === null || r === undefined ? '' : r);\n}\nfunction tyCode(r) {\n  if (r && typeof r.code === 'function') return r.code();\n  return 0;\n}\n/* 指纹 Cookie 纯本地计算，无网络；按天缓存 */\nfunction tyFingerprint() {\n  var day = tyDay();\n  var hit = tyCacheGet('fp.' + day);\n  if (hit) return hit;\n  var key = tyBytes(String(java.sha256('fa317cd29b|' + day)).slice(0, 32));\n  var fp = 'dfp=f-' + Number(day).toString(36) + ':f-' + tyB64(tySm4Ecb(key, tyUtf8('||||HarmonyOS|Asia/Shanghai')));\n  tyCachePut('fp.' + day, fp, 86400);\n  return fp;\n}\nfunction tyRandHex(n) {\n  var s = '', i;\n  for (i = 0; i < n * 2; i++) s += '0123456789abcdef'.charAt(Math.floor(Math.random() * 16));\n  return s;\n}\nfunction tyDateText(ts) {\n  var d = new Date(Number(ts) * 1000), m = d.getMonth() + 1, a = d.getDate();\n  return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (a < 10 ? '0' : '') + a;\n}\nfunction tyStatus(v) { return Number(v) === 1 ? '连载中' : '已完结'; }\n\n/* 带 TTL 的缓存（宿主提供 cache.get/put；不可用时回退 source 变量） */\nfunction tyCacheGet(k) {\n  try {\n    if (typeof cache !== 'undefined' && cache) { var v = cache.get(k); return v === null || v === undefined ? '' : String(v); }\n  } catch (e) { }\n  return String(source.get(k) || '');\n}\nfunction tyCachePut(k, v, ttl) {\n  try {\n    if (typeof cache !== 'undefined' && cache) { cache.put(k, String(v), ttl || TY_TTL); return; }\n  } catch (e) { }\n  source.put(k, String(v));\n}\n/* 专辑 id / 集号：兼容目录接口、详情接口、旧 data: 标记与 /audios/ 页面地址 */\nfunction tyAlbumChapter(baseUrl, text) {\n  var bu = String(baseUrl || ''), rs = String(text || ''), m;\n  var album = 0, idx = 0;\n  m = bu.match(/album_(?:info|chapters)\\/(\\d+)/);\n  if (m) album = Number(m[1]);\n  m = bu.match(/[?&]chapter=(\\d+)/);\n  if (m) idx = Number(m[1]);\n  if (!album) {\n    m = rs.match(/\"id\"\\s*:\\s*(\\d{6,})/);\n    if (m) album = Number(m[1]);\n  }\n  if (!album || !idx) {\n    m = bu.match(/(\\d{6,})-(\\d+)/) || rs.match(/(\\d{6,})-(\\d+)/);\n    if (m) { album = Number(m[1]); idx = Number(m[2]); }\n  }\n  if (!album || !idx) {\n    m = bu.match(/\\/audios\\/(\\d+)\\/(\\d+)/);\n    if (m) { album = Number(m[1]); idx = Number(m[2]); }\n  }\n  return { album: album, idx: idx };\n}\n/* 换取播放地址：匿名 + 指纹 Cookie，一次请求；结果按 专辑-集 缓存 */\nfunction tyPlayUrl(album, idx) {\n  var key = 'play.' + album + '-' + idx;\n  var hit = tyCacheGet(key);\n  if (hit) return hit;\n  var body = tyHex(tyGcmSeal(tyBytes(TY_KEY), tyBytes(tyRandHex(12)),\n    tyUtf8(JSON.stringify({ album_id: album, chapter_idx: idx }))));\n  var h = tyHead();\n  h['Content-Type'] = 'text/plain';\n  h.Cookie = tyFingerprint();\n  var r = java.post(TY_SITE + '/api/play_token', body, h);\n  var data = tyJson(tyBody(r), TY_KEY);\n  if (!data || !data.play_url) {\n    throw new Error('听友播放地址获取失败：' + ((data && data.detail) || ('HTTP ' + tyCode(r))));\n  }\n  tyCachePut(key, data.play_url, TY_TTL);\n  return data.play_url;\n}\n\n/* ---------- 规则入口 ---------- */\n/* 详情 init：统一返回专辑 JSON 字符串，供后续 JSONPath 字段使用 */\nfunction tingAlbum(baseUrl, result) {\n  var text = String(result || ''), id = tyAlbumChapter(baseUrl, text).album;\n  if (text.indexOf('\"payload\"') < 0 && id) text = java.ajax(TY_JSON + '/album_info/' + id);\n  var data = tyJson(text, tyPayloadKey(text));\n  data.id = data.id || id;\n  data.count = data.count || 0;\n  data.statusText = tyStatus(data.status);\n  data.updatedText = tyDateText(data.updated_at);\n  return JSON.stringify(data);\n}\n/* 发现：分类接口直接返回加密 payload */\nfunction tingExplore(result) {\n  var data = tyJson(result, tyPayloadKey(result));\n  var arr = (data && data.data) ? data.data : [], out = [], i, a;\n  for (i = 0; i < arr.length; i++) {\n    a = arr[i];\n    if (!a || !a.id) continue;\n    out.push({\n      name: String(a.title || ''),\n      author: String(a.author || ''),\n      teller: String(a.teller || ''),\n      cover: String(a.cover_url || ''),\n      count: a.count || 0,\n      status: tyStatus(a.status),\n      updated: tyDateText(a.updated_at),\n      url: TY_JSON + '/album_info/' + a.id\n    });\n  }\n  return out;\n}\n/* 搜索：解析搜索页内联 Nuxt 数据 */\nfunction tingSearch(result) {\n  var m = String(result).match(/__NUXT_DATA__[^>]*>([\\s\\S]*?)<\\/script>/);\n  if (!m) return [];\n  var arr = JSON.parse(m[1]), i, o, sr, so, list = null;\n  for (i = 0; i < arr.length; i++) {\n    o = arr[i];\n    if (o && typeof o === 'object' && !(o instanceof Array) && o.searchResults !== undefined) {\n      sr = o.searchResults;\n      so = (typeof sr === 'number') ? arr[sr] : sr;\n      if (so) list = (typeof so.list === 'number') ? arr[so.list] : so.list;\n      break;\n    }\n  }\n  if (!list || !list.length) return [];\n  var out = [], seen = {}, j, co, id;\n  for (j = 0; j < list.length; j++) {\n    co = (typeof list[j] === 'number') ? arr[list[j]] : list[j];\n    if (!co || typeof co !== 'object') continue;\n    id = tyPick(arr, co.id);\n    if (!id || seen[id]) continue;\n    seen[id] = 1;\n    out.push({\n      name: String(tyPick(arr, co.title) || ''),\n      author: String(tyPick(arr, co.author) || ''),\n      cover: String(tyPick(arr, co.cover) || ''),\n      intro: String(tyPick(arr, co.desc) || ''),\n      kind: String(tyPick(arr, co.categoryName) || ''),\n      count: tyPick(arr, co.chapterTotal) || 0,\n      status: tyStatus(tyPick(arr, co.status)),\n      url: TY_JSON + '/album_info/' + id\n    });\n  }\n  return out;\n}\nfunction tyPick(arr, v) {\n  if (typeof v === 'number' && v >= 0 && v < arr.length) {\n    var t = arr[v];\n    if (typeof t === 'string' || typeof t === 'number') return t;\n  }\n  return v;\n}\n/* 目录：章节地址用真实 https（1KB 接口 + 集号），使应用音频预加载生效 */\nfunction tingChapters(baseUrl, result) {\n  var id = tyAlbumChapter(baseUrl, result).album, text = String(result || '');\n  if (text.indexOf('\"payload\"') < 0 && id) text = java.ajax(TY_JSON + '/album_chapters/' + id);\n  var data = tyJson(text, tyPayloadKey(text));\n  var arr = (data && data.chapters) ? data.chapters : [], out = [], i, c;\n  for (i = 0; i < arr.length; i++) {\n    c = arr[i];\n    if (!c) continue;\n    out.push({\n      name: String(c.title || ('第' + c.index + '集')),\n      url: TY_JSON + '/album_info/' + id + '?chapter=' + c.index\n    });\n  }\n  return out;\n}\n/* 正文：直接换取播放地址 */\nfunction tingPlay(baseUrl, result) {\n  var ac = tyAlbumChapter(baseUrl, result);\n  if (!ac.album || !ac.idx) throw new Error('听友：无法识别章节地址 ' + String(baseUrl || ''));\n  return tyPlayUrl(ac.album, ac.idx);\n}\n",
+    "lastUpdateTime": 1794723600000,
+    "respondTime": 180000,
+    "weight": 0,
+    "ruleSearch": {
+      "bookList": "@js:tingSearch(result)",
+      "name": "name",
+      "author": "author",
+      "coverUrl": "cover",
+      "intro": "intro",
+      "kind": "kind",
+      "wordCount": "count##$##集",
+      "status": "status",
+      "bookUrl": "url",
+      "checkKeyWord": "狂龙"
+    },
+    "ruleExplore": {
+      "bookList": "@js:tingExplore(result)",
+      "name": "name",
+      "author": "author",
+      "coverUrl": "cover",
+      "wordCount": "count##$##集",
+      "status": "status",
+      "updateTime": "updated",
+      "bookUrl": "url"
+    },
+    "ruleBookInfo": {
+      "init": "@js:tingAlbum(baseUrl,result)",
+      "name": "$.title",
+      "author": "$.author",
+      "coverUrl": "$.cover_url",
+      "intro": "$.synopsis",
+      "kind": "$.type",
+      "status": "$.statusText",
+      "wordCount": "$.count##$##集",
+      "updateTime": "$.updatedText",
+      "tocUrl": "https://json.hgeuz.cn/tyfm/json_v1/album_chapters/{{$.id}}"
+    },
+    "ruleToc": {
+      "chapterList": "@js:tingChapters(baseUrl,result)",
+      "chapterName": "name",
+      "chapterUrl": "url"
+    },
+    "ruleContent": {
+      "content": "@js:tingPlay(baseUrl,result)"
+    },
+    "searchUrl": "https://tingyou.fm/search/result?keyword={{key}}&page={{page}}",
+    "presetRevision": 1
+  },
+  {
+    "bookSourceName": "听书网",
+    "bookSourceGroup": "听书",
+    "bookSourceType": 1,
+    "bookSourceUrl": "https://www.tingshuwang.cc",
+    "bookSourceComment": "听书网 tingshuwang.cc。搜索 /so/关键词/；发现按分类 index_{{page}}.html；详情与目录在 /book/书名/；播放页 chapter_data.videourl 直链 mp3。目录源站倒序，规则用 - 翻转。",
+    "presetRevision": 1,
+    "enabled": true,
+    "enabledExplore": true,
+    "enabledCookieJar": true,
+    "concurrentRate": "30/60000",
+    "respondTime": 60000,
+    "lastUpdateTime": 1794724800000,
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\", \"Referer\": \"https://www.tingshuwang.cc/\", \"Accept-Language\": \"zh-CN,zh;q=0.9\"}",
+    "bookUrlPattern": "tingshuwang\\.cc/book/[A-Za-z0-9]+/?",
+    "searchUrl": "https://www.tingshuwang.cc/so/{{key}}/",
+    "exploreUrl": "[{\"title\": \"玄幻武侠\", \"url\": \"https://www.tingshuwang.cc/book/xuanhuanwuxia/index_{{page}}.html\"}, {\"title\": \"都市言情\", \"url\": \"https://www.tingshuwang.cc/book/dushiyanqing/index_{{page}}.html\"}, {\"title\": \"恐怖悬疑\", \"url\": \"https://www.tingshuwang.cc/book/kongbuxuanyi/index_{{page}}.html\"}, {\"title\": \"职场商战\", \"url\": \"https://www.tingshuwang.cc/book/zhichangshangzhan/index_{{page}}.html\"}, {\"title\": \"刑侦推理\", \"url\": \"https://www.tingshuwang.cc/book/tuilixiaoshuo/index_{{page}}.html\"}, {\"title\": \"军事历史\", \"url\": \"https://www.tingshuwang.cc/book/junshilishi/index_{{page}}.html\"}, {\"title\": \"网游竞技\", \"url\": \"https://www.tingshuwang.cc/book/wangyoujingji/index_{{page}}.html\"}, {\"title\": \"综艺娱乐\", \"url\": \"https://www.tingshuwang.cc/book/zongyiyule/index_{{page}}.html\"}, {\"title\": \"连载\", \"url\": \"https://www.tingshuwang.cc/book/lianzai/index_{{page}}.html\"}, {\"title\": \"完本\", \"url\": \"https://www.tingshuwang.cc/book/wanjie/index_{{page}}.html\"}]",
+    "jsLib": "function tswAbs(u) {\n  u = String(u || '').replace(/&amp;/g, '&').trim();\n  if (!u) return '';\n  if (/^https?:\\/\\//i.test(u)) return u.replace(/^http:\\/\\//i, 'https://');\n  if (u.charAt(0) === '/') return 'https://www.tingshuwang.cc' + u;\n  return u;\n}\nfunction tswPlay(result) {\n  var html = String(result || '');\n  var m = /videourl\\s*:\\s*'([^']+)'/i.exec(html) || /videourl\\s*:\\s*\"([^\"]+)\"/i.exec(html);\n  if (!m) throw new Error('听书网未返回音频地址');\n  return tswAbs(m[1]);\n}\n",
+    "ruleSearch": {
+      "bookList": ".book-list-wrapper .book",
+      "name": "h5 a@text",
+      "author": ".author a@text||.author@text##作者：",
+      "coverUrl": ".book-img img@src",
+      "bookUrl": ".book-img a@href||h5 a@href",
+      "intro": ".book-info dd@text||.intro@text",
+      "kind": ".category@text##分类：",
+      "checkKeyWord": "诡秘之主"
+    },
+    "ruleExplore": {
+      "bookList": ".book-list-wrapper .book",
+      "name": "h5 a@text",
+      "author": ".author a@text||.author@text##作者：",
+      "coverUrl": ".book-img img@src",
+      "bookUrl": ".book-img a@href||h5 a@href",
+      "intro": ".book-info dd@text||.intro@text"
+    },
+    "ruleBookInfo": {
+      "name": "h1@text",
+      "author": ".book-info .author a@text||.book-info .author@text##作者：",
+      "coverUrl": ".book-img img@src",
+      "intro": ".book-intro@text##详细介绍>>",
+      "kind": ".book-info .category a@text||.book-info .category@text##分类：",
+      "status": ".book-info .status a@text||.book-info .status@text##状态：",
+      "lastChapter": ".book-info .update-chapter a@text",
+      "updateTime": ".book-info .update-time time@text||.book-info .update-time@text##时间："
+    },
+    "ruleToc": {
+      "chapterList": "-.book-chpater-list a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "@js:tswPlay(result)"
+    }
+  },
+  {
+    "bookSourceName": "99听书网",
+    "bookSourceGroup": "听书",
+    "bookSourceType": 1,
+    "bookSourceUrl": "https://www.ting99.com",
+    "bookSourceComment": "99听书网 ting99.com。详情 /mp3/ID.html，目录 ul.compress，播放页 var now=m4a。发现走 /fenlei/{id}-{{page}}.html。关键词搜索 /search.php 常出验证码：可在书源管理打开网页完成验证后重试，或优先用发现分类。",
+    "presetRevision": 1,
+    "enabled": true,
+    "enabledExplore": true,
+    "enabledCookieJar": true,
+    "concurrentRate": "30/60000",
+    "respondTime": 60000,
+    "lastUpdateTime": 1794724800000,
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\", \"Referer\": \"https://www.ting99.com/\", \"Accept-Language\": \"zh-CN,zh;q=0.9\"}",
+    "loginUrl": "https://www.ting99.com/search.php?searchword=%E6%AD%A6%E7%9A%87",
+    "bookUrlPattern": "ting99\\.com/mp3/\\d+",
+    "searchUrl": "https://www.ting99.com/search.php?searchword={{key}}",
+    "exploreUrl": "[{\"title\": \"玄幻\", \"url\": \"https://www.ting99.com/fenlei/1-{{page}}.html\"}, {\"title\": \"言情\", \"url\": \"https://www.ting99.com/fenlei/2-{{page}}.html\"}, {\"title\": \"都市\", \"url\": \"https://www.ting99.com/fenlei/3-{{page}}.html\"}, {\"title\": \"恐怖\", \"url\": \"https://www.ting99.com/fenlei/4-{{page}}.html\"}, {\"title\": \"惊悚\", \"url\": \"https://www.ting99.com/fenlei/5-{{page}}.html\"}, {\"title\": \"推理\", \"url\": \"https://www.ting99.com/fenlei/6-{{page}}.html\"}, {\"title\": \"武侠\", \"url\": \"https://www.ting99.com/fenlei/7-{{page}}.html\"}, {\"title\": \"历史\", \"url\": \"https://www.ting99.com/fenlei/8-{{page}}.html\"}, {\"title\": \"军事\", \"url\": \"https://www.ting99.com/fenlei/9-{{page}}.html\"}, {\"title\": \"穿越\", \"url\": \"https://www.ting99.com/fenlei/10-{{page}}.html\"}, {\"title\": \"科幻\", \"url\": \"https://www.ting99.com/fenlei/11-{{page}}.html\"}, {\"title\": \"网游\", \"url\": \"https://www.ting99.com/fenlei/12-{{page}}.html\"}, {\"title\": \"评书\", \"url\": \"https://www.ting99.com/fenlei/13-{{page}}.html\"}, {\"title\": \"戏曲\", \"url\": \"https://www.ting99.com/fenlei/14-{{page}}.html\"}, {\"title\": \"儿童\", \"url\": \"https://www.ting99.com/fenlei/16-{{page}}.html\"}, {\"title\": \"相声小品\", \"url\": \"https://www.ting99.com/fenlei/32-{{page}}.html\"}, {\"title\": \"百家讲坛\", \"url\": \"https://www.ting99.com/fenlei/34-{{page}}.html\"}, {\"title\": \"经典\", \"url\": \"https://www.ting99.com/fenlei/35-{{page}}.html\"}]",
+    "jsLib": "function t99Abs(u) {\n  u = String(u || '').replace(/&amp;/g, '&').trim();\n  if (!u) return '';\n  if (/^https?:\\/\\//i.test(u)) return u.replace(/^http:\\/\\//i, 'https://');\n  if (u.charAt(0) === '/') return 'https://www.ting99.com' + u;\n  return u;\n}\nfunction t99Play(result) {\n  var html = String(result || '');\n  if (html.indexOf('系统安全验证') >= 0) throw new Error('99听书网需要先完成网页验证码');\n  var m = /var\\s+now\\s*=\\s*\"([^\"]+)\"/i.exec(html) || /var\\s+now\\s*=\\s*'([^']+)'/i.exec(html);\n  if (!m) throw new Error('99听书网未返回音频地址');\n  return t99Abs(m[1]);\n}\n",
+    "ruleSearch": {
+      "bookList": ".clist ul li||.book_slist .bookbox||.hitlist ul li",
+      "name": "b@text||h4.bookname@text||a@title",
+      "author": "p@text:1##作者：||.author@text##作者：",
+      "coverUrl": "img@src||img@orgsrc",
+      "bookUrl": "a[href*=/mp3/]@href||tag.a.0@href",
+      "kind": "p@text:2##类型：||.cat@text",
+      "intro": ".intro_line@text##简介：||p@text:4",
+      "checkKeyWord": "鬼吹灯"
+    },
+    "ruleExplore": {
+      "bookList": ".clist ul li",
+      "name": "b@text||a@title",
+      "author": "p@text:1##作者：",
+      "coverUrl": "img.imgc@src||img@src",
+      "bookUrl": "a[href*=/mp3/]@href||tag.a.0@href",
+      "kind": "p@text:2##类型：",
+      "intro": "p@text:4"
+    },
+    "ruleBookInfo": {
+      "name": "h1@text##文/.*",
+      "author": "tag.p.2 a@text||tag.p.2@text##播音：",
+      "coverUrl": "img.imgd@src",
+      "intro": ".intro@text||.book_intro@text||div.numlist.border.intro@text",
+      "kind": "tag.p.0@text##类型：",
+      "status": "tag.p.4@text##状态：",
+      "updateTime": "tag.p.1@text##更新时间："
+    },
+    "ruleToc": {
+      "chapterList": "ul.compress li a||#playlist li a||.playlist li a",
+      "chapterName": "title||text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "@js:t99Play(result)"
+    }
+  },
+  {
+    "sourceFormat": "native",
+    "version": 1,
+    "name": "书音FM",
+    "url": "https://m.mekui.com",
+    "group": "听书",
+    "comment": "书音FM（m.mekui.com / api.mekui.com）。搜索/发现/详情/目录走 ecmsapi movie 接口；播放经 wapseries 签名取 signed_urls（优先 audio-a mp3）。公开章节免登录；VIP/积分章节目录会标需付费，不做付费绕过。与桌面站 www.shuyinfm.com 同源。",
+    "type": "audio",
+    "enabled": true,
+    "enabledExplore": true,
+    "rate": "30/60000",
+    "presetRevision": 1,
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+      "Referer": "https://m.mekui.com/",
+      "Accept": "application/json,text/plain,*/*",
+      "Accept-Language": "zh-CN,zh;q=0.9"
+    },
+    "js": "function mekuiAlbumId(url) {\n  const s = String(url || '');\n  let m = s.match(/\\/(?:album|audio)\\/(\\d+)-(\\d+)(?:-(\\d+))?\\.html/i);\n  if (m) return m[2];\n  m = s.match(/[?&](?:id|albumId)=(\\d+)/i);\n  if (m) return m[1];\n  m = s.match(/\\/play\\/(\\d+)\\/(\\d+)/);\n  if (m) return m[1];\n  return '';\n}\nfunction mekuiClassId(url) {\n  const s = String(url || '');\n  let m = s.match(/\\/(?:album|audio)\\/(\\d+)-(\\d+)/i);\n  if (m) return m[1];\n  m = s.match(/[?&]classid=(\\d+)/i);\n  return m ? m[1] : '0';\n}\nfunction mekuiMovieId(url) {\n  const s = String(url || '');\n  let m = s.match(/\\/audio\\/\\d+-\\d+-(\\d+)\\.html/i);\n  if (m) return m[1];\n  m = s.match(/[?&](?:movieId|chapter)=(\\d+)/i);\n  if (m) return m[1];\n  m = s.match(/\\/play\\/\\d+\\/(\\d+)/);\n  return m ? m[1] : '1';\n}\nfunction mekuiBookUrl(classid, id) {\n  return 'https://m.mekui.com/album/' + String(classid == null || classid === '' ? '0' : classid) + '-' + String(id) + '.html';\n}\nfunction mekuiChapterUrl(classid, id, movieId) {\n  return 'https://m.mekui.com/audio/' + String(classid == null || classid === '' ? '0' : classid) + '-' + String(id) + '-' + String(movieId) + '.html';\n}\nfunction mekuiAbsPic(u) {\n  let s = String(u || '').replace(/&amp;/g, '&').trim();\n  if (!s) return '';\n  if (s.indexOf('//') === 0) s = 'https:' + s;\n  return s.replace(/^http:\\/\\//i, 'https://');\n}\nfunction mekuiAuthor(playadmin, player) {\n  const a = String(playadmin || '').trim();\n  const p = String(player || '').trim();\n  if (a && p && a !== p) return a + ' · 主播:' + p;\n  if (p) return '主播:' + p;\n  return a;\n}\nfunction mekuiToken(albumId, movieId, ts) {\n  const secret = '056a308c515e16b2fe5a5c631319339cbc60a8ee0e03d016';\n  const raw = 'act=wapseries&id=' + String(albumId) + '&mod=movie&movieId=' + String(movieId) + '&t=' + String(ts) + '&token=' + secret;\n  return native.md5(raw);\n}\nfunction mekuiPlayUrl(data) {\n  const d = (data && data.data) ? data.data : (data || {});\n  const urls = d.signed_urls || d.signedUrls || [];\n  const order = [4, 0, 3, 1];\n  for (let i = 0; i < order.length; i++) {\n    const u = urls[order[i]];\n    if (u) return String(u);\n  }\n  for (let j = 0; j < urls.length; j++) {\n    if (urls[j]) return String(urls[j]);\n  }\n  return String(d.SeriesUrl || d.seriesUrl || '');\n}\nfunction mekuiNeedPay(item) {\n  const it = item || {};\n  return Number(it.control || 0) > 0 || Number(it.level || 0) > 0 || Number(it.ofen || 0) > 0 || Number(it.vip || 0) > 0;\n}\n",
+    "let": {
+      "api": "= 'https://api.mekui.com'",
+      "host": "= 'https://m.mekui.com'",
+      "pageSize": "= '100'"
+    },
+    "search": {
+      "url": "= api + '/ecmsapi/index.php?mod=movie&act=search&keyword=' + urlencode(key) + '&page=' + page + '&pagesize=20'",
+      "fail": "= data ? (int(default(data.code, 0)) != 1 ? '书音FM搜索：' + str(default(data.msg, default(data.message, '接口返回失败'))) : '') : '书音FM搜索返回了非 JSON 内容'",
+      "list": "$.data.list[*]",
+      "fields": {
+        "name": "= trim(htmlDecode(default($.title, '')))",
+        "author": "= mekuiAuthor($.playadmin, $.player)",
+        "intro": "= trim(htmlDecode(default($.moviesay, '')))",
+        "coverUrl": "= mekuiAbsPic($.titlepic)",
+        "kind": "= join(compact([default($.firstclassname, ''), default($.filetype, ''), int(default($.onclick, 0)) > 0 ? str($.onclick) + '热度' : '']), ' · ')",
+        "wordCount": "= int(default($.totaldown, 0)) >= 10000 ? round(int($.totaldown) / 10000, 1) + '万下载' : (int(default($.totaldown, 0)) > 0 ? str(int($.totaldown)) + '下载' : '')",
+        "type": "audio",
+        "bookUrl": "= mekuiBookUrl(default($.classid, '0'), default($.id, $.filename))"
+      }
+    },
+    "explore": {
+      "menus": [
+        {
+          "title": "推荐",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=home'",
+          "list": "$.data.movieRecommendList[*]",
+          "fields": {
+            "name": "= trim(htmlDecode(default($.title, '')))",
+            "author": "= mekuiAuthor($.playadmin, $.player)",
+            "intro": "= trim(htmlDecode(default($.moviesay, '')))",
+            "coverUrl": "= mekuiAbsPic($.titlepic)",
+            "kind": "= default($.filetype, '')",
+            "type": "audio",
+            "bookUrl": "= mekuiBookUrl(default($.classid, '0'), $.id)"
+          }
+        },
+        {
+          "title": "热播",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=home'",
+          "list": "$.data.movieHotList[*]"
+        },
+        {
+          "title": "网友推荐",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=home'",
+          "list": "$.data.movieWebRecommendList[*]"
+        },
+        {
+          "title": "新作",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=home'",
+          "list": "$.data.movieNewList[*]"
+        },
+        {
+          "title": "言情",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=1&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "玄幻",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=2&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "广播剧",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=10&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "恐怖",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=5&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "穿越",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=7&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "都市",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=8&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "历史",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=16&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "悬疑",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=33&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "百家讲坛",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=31&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "评书",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=12&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "推理",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=39&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "军事",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=40&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "职场",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=41&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "修真",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=60&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "武侠",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=92&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "文学",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=38&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "人物",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=58&page=' + page + '&pagesize=20'"
+        },
+        {
+          "title": "网游",
+          "url": "= api + '/ecmsapi/index.php?mod=movie&act=list&classid=63&page=' + page + '&pagesize=20'"
+        }
+      ],
+      "fail": "= data ? (int(default(data.code, 0)) != 1 ? '书音FM发现：' + str(default(data.msg, default(data.message, '接口返回失败'))) : '') : '书音FM发现返回了非 JSON 内容'",
+      "list": "$.data.list[*]",
+      "fields": {
+        "name": "= trim(htmlDecode(default($.title, '')))",
+        "author": "= mekuiAuthor($.playadmin, $.player)",
+        "intro": "= trim(htmlDecode(default($.moviesay, '')))",
+        "coverUrl": "= mekuiAbsPic($.titlepic)",
+        "kind": "= default($.filetype, '')",
+        "type": "audio",
+        "bookUrl": "= mekuiBookUrl(default($.classid, '0'), $.id)"
+      }
+    },
+    "detail": {
+      "url": "= api + '/ecmsapi/index.php?mod=movie&act=detail&id=' + default(book.vars.albumId, mekuiAlbumId(book.bookUrl))",
+      "fail": "= data ? (int(default(data.code, 0)) != 1 || default(data.data.detail, '') == '' ? '书音FM详情：' + str(default(data.msg, default(data.message, '未找到书籍'))) : '') : '书音FM详情返回了非 JSON 内容'",
+      "let": {
+        "d": "= data.data.detail ?? {}"
+      },
+      "fields": {
+        "name": "= trim(htmlDecode(default(d.title, '')))",
+        "author": "= mekuiAuthor(d.playadmin, d.player)",
+        "intro": "= trim(htmlDecode(default(d.moviesay, '')))",
+        "coverUrl": "= mekuiAbsPic(d.titlepic)",
+        "kind": "= join(compact([default(d.firstclassname, ''), default(d.filetype, ''), default(d.movietype, '')]), ' · ')",
+        "wordCount": "= int(default(d.onclick, 0)) >= 10000 ? round(int(d.onclick) / 10000, 1) + '万热度' : (int(default(d.onclick, 0)) > 0 ? str(int(d.onclick)) + '热度' : '')",
+        "lastChapter": "",
+        "type": "audio"
+      },
+      "keep": {
+        "albumId": "= str(d.id)",
+        "classId": "= str(default(d.classid, mekuiClassId(book.bookUrl)))"
+      }
+    },
+    "toc": {
+      "url": "= api + '/ecmsapi/index.php?mod=movie&act=movielist&id=' + default(book.vars.albumId, mekuiAlbumId(book.bookUrl)) + '&page=1&pagesize=' + pageSize",
+      "retry": 2,
+      "fail": "= data ? (int(default(data.code, 0)) != 1 ? '书音FM目录：' + str(default(data.msg, default(data.message, '接口返回失败'))) : (len(default(data.data.moielist, [])) == 0 ? '书音FM目录为空' : '')) : '书音FM目录返回了非 JSON 内容'",
+      "list": "$.data.moielist[*]",
+      "fields": {
+        "title": "= trim(htmlDecode(default($.title, '第' + str($.id) + '集')))",
+        "url": "= mekuiChapterUrl(default(book.vars.classId, mekuiClassId(book.bookUrl)), default(book.vars.albumId, mekuiAlbumId(book.bookUrl)), $.id)",
+        "tag": "= mekuiNeedPay($) ? '需付费' : ''",
+        "isPay": "= mekuiNeedPay($)"
+      },
+      "nextUrl": "= map(range(max(0, int(default(data.data.totalpage, 1)) - 1)), i => api + '/ecmsapi/index.php?mod=movie&act=movielist&id=' + default(book.vars.albumId, mekuiAlbumId(book.bookUrl)) + '&page=' + (i + 2) + '&pagesize=' + pageSize)",
+      "batch": 4
+    },
+    "content": {
+      "retry": 2,
+      "let": {
+        "albumId": "= default(book.vars.albumId, mekuiAlbumId(chapter.url))",
+        "movieId": "= mekuiMovieId(chapter.url)",
+        "ts": "= str(int(now() / 1000))",
+        "token": "= mekuiToken(albumId, movieId, ts)"
+      },
+      "url": "= api + '/ecmsapi/index.php?act=wapseries&mod=movie&id=' + albumId + '&movieId=' + movieId + '&t=' + ts + '&token=' + token",
+      "fail": "= data ? (int(default(data.code, 0)) != 1 ? '书音FM播放：' + str(default(data.msg, default(data.message, '接口返回失败'))) : (mekuiPlayUrl(data) != '' ? '' : '书音FM未返回播放地址（可能需付费/会员）')) : '书音FM播放接口返回了非 JSON 内容'",
+      "audio": "= mekuiPlayUrl(data)",
+      "mediaHeaders": {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        "Referer": "https://m.mekui.com/",
+        "Accept": "*/*"
+      },
+      "mediaError": "= '这一集没有可播放地址（可能需付费、会员或已下架）'"
+    }
+  }
+]

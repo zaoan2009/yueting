@@ -1,0 +1,156 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "description": "$string:module_desc",
+    "mainElement": "EntryAbility",
+    "deviceTypes": [
+      "phone",
+      "tablet",
+      "2in1",
+      "wearable"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:main_pages",
+    // Account Kit 使用 AGC「应用」下的 OAuth 2.0 客户端 ID，不使用项目级 Client ID。
+    // 当前对应包名 com.yueting.listen 的应用级 Client ID / APP ID。
+    "metadata": [
+      {
+        "name": "client_id",
+        "value": "6917621950587862943"
+      }
+    ],
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.DETECT_GESTURE"
+      },
+      {
+        "name": "ohos.permission.INTERNET"
+      },
+      {
+        "name": "ohos.permission.FILE_ACCESS_PERSIST",
+        "reason": "$string:file_access_persist_reason",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.VIBRATE"
+      },
+      {
+        "name": "ohos.permission.KEEP_BACKGROUND_RUNNING",
+        "reason": "$string:keep_background_running_reason",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      }
+    ],
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "description": "$string:EntryAbility_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:EntryAbility_label",
+        "launchType": "singleton",
+        "continuable": true,
+        "startWindowIcon": "$media:splash_text",
+        "startWindowBackground": "$color:start_window_background",
+        "orientation": "auto_rotation_restricted",
+        "exported": true,
+        "backgroundModes": [
+          "dataTransfer",
+          "audioPlayback"
+        ],
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "ohos.want.action.home"
+            ]
+          },
+          {
+            // 系统“使用其他应用打开”：JSON 进入书源导入，受支持的电子书和 ZIP 进入本地导入。
+            "actions": ["ohos.want.action.viewData"],
+            "uris": [
+              { "scheme": "file", "type": "general.json", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "application/json", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "text/json", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "general.json", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "application/json", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "text/json", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "general.plain-text", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "text/plain", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "general.epub", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "application/epub+zip", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "com.amazon.mobi", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "application/x-mobipocket-ebook", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "general.html", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "text/html", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "general.zip-archive", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "application/zip", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "application/x-zip-compressed", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "general.plain-text", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "text/plain", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "general.epub", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "application/epub+zip", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "com.amazon.mobi", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "application/x-mobipocket-ebook", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "general.html", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "text/html", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "general.zip-archive", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "application/zip", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "application/x-zip-compressed", "linkFeature": "FileOpen" }
+            ]
+          }
+        ]
+      }
+    ],
+    "extensionAbilities": [
+      {
+        "name": "EntryBackupAbility",
+        "srcEntry": "./ets/entrybackupability/EntryBackupAbility.ets",
+        "type": "backup",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.backup",
+            "resource": "$profile:backup_config"
+          }
+        ],
+      },
+      {
+        "name": "ReaderFormAbility",
+        "srcEntry": "./ets/widget/ReaderFormAbility.ets",
+        "label": "$string:reader_card_label",
+        "description": "$string:reader_card_desc",
+        "type": "form",
+        "metadata": [
+          { "name": "ohos.extension.form", "resource": "$profile:reader_form_config" }
+        ]
+      },
+      {
+        "name": "PlayerFormAbility",
+        "srcEntry": "./ets/widget/PlayerFormAbility.ets",
+        "label": "$string:PlayerFormAbility_label",
+        "description": "$string:PlayerFormAbility_desc",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:player_form_config"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,87 @@
+/node_modules
+/oh_modules
+**/oh_modules/
+/local.properties
+/.idea
+**/build
+/.hvigor
+**/.hvigor/
+.codex-*
+undefined
+obfuscation-cache.json
+.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer
+/.specstory
+/.tmp_shots
+/screenshot
+
+# 本地 UI 验证截图与层级 dump
+/artifacts/*.png
+/artifacts/*.hap
+/artifacts/*.hap.sha256
+/artifacts/*.app
+/artifacts/*.app.sha256
+/artifacts/releases/
+/signing/
+/.env
+/.certs/
+/*.hap
+/ui-dump*/
+
+# Build logs
+*.log
+.build_log*
+.tmp/
+build-logs/
+
+# Dump files
+simple_dump_*.txt
+小说json.txt
+
+# Jadx decompiled
+*.jadx
+*.jar
+
+# Superpowers brainstorming workdir
+.superpowers/
+# 本地真机分析/调试临时产物(截图、UI dump、字体生成中间件)
+.apk-analysis/
+.tmp_debug/
+.verify/
+reader_shot.png
+
+# 书源导出/抓取的临时文本 dump
+/*_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_*.txt
+/猫眼.txt
+/*api-import.json
+
+# skill 本地依赖
+.claude/skills/*/node_modules/
+
+# 本地缓存与工具目录
+/.cache/
+/.deveco/
+/icon_backup/
+/icon_backup_entry/
+
+# 本地助手记忆与临时构建目录
+/.workbuddy-ai/
+/.tmp-build*/
+/artifacts/
+
+# local signing materials
+signing/
+/.sign/
+/build/
+.tmp-smartisan/
+output/
+
+# large local design assets (optional workspace copies)
+/10_*.png
+/12_*.png
+/274d6140-*.png
+

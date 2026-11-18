@@ -1,0 +1,18 @@
+{
+  "app": {
+    "bundleName": "com.yueting.listen",
+    "cloudFileSyncEnabled": true,
+    "vendor": "悦听",
+    "versionCode": 25,
+    "versionName": "0.0.25",
+    "buildVersion": "25",
+    "icon": "$media:app_icon",
+    "alternateIcons": [
+      {
+        "name": "playing",
+        "icon": "$media:app_icon_playing"
+      }
+    ],
+    "label": "$string:app_name"
+  }
+}

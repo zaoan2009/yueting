@@ -1,0 +1,13 @@
+{
+  "name": "entry",
+  "version": "0.0.1",
+  "description": "悦听主模块",
+  "main": "",
+  "author": "",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "libnative_rulecore.so": "file:./src/main/cpp/types/libnative_rulecore",
+    "@devzeng/quickjs": "file:./libs/quickjs.har"
+  }
+}
+

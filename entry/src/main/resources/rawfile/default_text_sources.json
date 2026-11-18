@@ -1,0 +1,947 @@
+[
+  {
+    "sourceFormat": "native",
+    "version": 1,
+    "name": "古文岛·古籍电子书",
+    "url": "https://www.gushiwen.cn",
+    "group": "电子书",
+    "type": "text",
+    "rate": "4/1000",
+    "comment": "古文岛（原古诗文网）古籍库，站内 200 本公版古籍（四库经史子集分类，含论语、史记、红楼梦等），免登录读全文。三条实测约束：1) 必须用桌面 UA —— 带 Phone / Mobile / Android / iPhone 的 UA 会返回 115 字节的「跳手机端 / App」壳页（没有正文也没有目录），所以 headers 固定写桌面 UA，也别给这个源开 webView；2) 站内没有免登录的搜索接口（search.aspx 会跳登录页，列表页的 type 参数只认四库类别名、传书名返回 0 条），所以搜索和发现交给脚本抓 20 页书目（共 200 本）在本地按关键词过滤，是真过滤不是假搜索，搜不到的冷门书可从发现页分类翻找；3) 小站怕密集请求，短时间打太密会返回 512 或空壳页（实测 4 路并发扫 200 本时 109 本被限流），所以 rate 写 4/1000、脚本顺序抓页并留 sleep。目录不用翻页：书页一页就列全部章节（实测最多 333 章，去重后与页面条目一致）；正文直接在 div.contson 文本节点（多数章无内层 p），只有原文、不含注释译文",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Referer": "https://www.gushiwen.cn/guwen/",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    },
+    "scriptLimits": {
+      "requests": 26,
+      "bytes": 8388608,
+      "computeMs": 12000,
+      "runMs": 55000
+    },
+    "js": "function gwClean(s) {\n  var wide = String.fromCharCode(12288);\n  var nl = String.fromCharCode(10);\n  var t = String(s == null ? '' : s).replace(/<[^>]*>/g, ' ').split(wide).join(' ');\n  var parts = t.split(nl);\n  var out = [];\n  for (var i = 0; i < parts.length; i++) {\n    var line = parts[i].replace(/ +/g, ' ');\n    if (line) out.push(line);\n  }\n  return out.join(' ').trim();\n}\n\nfunction gwIndex() {\n  var hit = cache.get('gwBooks');\n  if (hit) {\n    try {\n      var old = JSON.parse(hit);\n      if (old && old.length >= 50) return old;\n    } catch (e) {}\n  }\n  var seen = {};\n  var out = [];\n  for (var p = 1; p <= 20; p++) {\n    var r = http.get('https://www.gushiwen.cn/guwen/Default.aspx?p=' + p, { timeout: 20000 });\n    if (!r.ok) {\n      log('书目第 ' + p + ' 页失败', r.status, r.error);\n      sleep(500);\n      continue;\n    }\n    var blocks = native.selAll('@css:.sonspic@html', r.body) || [];\n    for (var i = 0; i < blocks.length; i++) {\n      var b = blocks[i];\n      var href = native.sel('@css:p a[href^=\"/guwen/book_\"]@href', b) || '';\n      var name = gwClean(native.sel('@css:p a[href^=\"/guwen/book_\"]@text', b));\n      if (!href || !name) continue;\n      var url = href.indexOf('http') === 0 ? href : 'https://www.gushiwen.cn' + href;\n      if (seen[url]) continue;\n      seen[url] = 1;\n      var tags = native.selAll('@css:.book-tag span@text', b) || [];\n      var ps = native.selAll('@css:.cont p@text', b) || [];\n      out.push({\n        name: name,\n        author: gwClean(tags.length ? tags[0] : ''),\n        era: gwClean(tags.length > 1 ? tags[1] : ''),\n        kind: gwClean(tags.length > 2 ? tags[2] : ''),\n        intro: gwClean(ps.length ? ps[ps.length - 1] : '').substring(0, 200),\n        bookUrl: url\n      });\n    }\n    sleep(150);\n  }\n  if (out.length < 50) throw new Error('古籍书目只取到 ' + out.length + ' 本（站内约 200 本），多半是打太密被限流，过一两分钟再试');\n  cache.put('gwBooks', JSON.stringify(out), 86400);\n  log('已建古籍书目索引', out.length, '本');\n  return out;\n}\n\nfunction searchBooks(ctx) {\n  var key = gwClean(ctx.key);\n  if (!key) throw new Error('请输入书名、作者或类别，比如「红楼梦」「司马迁」「正史」');\n  var low = key.toLowerCase();\n  var hits = gwIndex().filter(function (b) {\n    return (b.name + ' ' + b.author + ' ' + b.era + ' ' + b.kind + ' ' + b.intro).toLowerCase().indexOf(low) >= 0;\n  });\n  if (!hits.length) throw new Error('书目里没有匹配「' + key + '」的古籍（站内共 200 本公版古籍，可试「论语」「史记」「菜根谭」，或到发现页按四库分类翻找）');\n  return hits;\n}\n\nfunction exploreBooks(ctx) {\n  var tag = gwClean(ctx.url);\n  var all = gwIndex();\n  if (!tag || tag.indexOf('全部') >= 0) return all;\n  var sep = tag.indexOf(':');\n  var dim = sep > 0 ? tag.substring(0, sep) : '类';\n  var val = sep > 0 ? tag.substring(sep + 1) : tag;\n  var stem = val.replace(/类$/, '');\n  var hits = all.filter(function (b) {\n    var field = dim === '部' ? b.kind : (dim === '朝' ? b.era : b.kind);\n    if (dim === '部') return field.indexOf(val) >= 0;\n    if (dim === '朝') return field === val;\n    return field.indexOf(val) >= 0 || (stem.length > 1 && field.indexOf(stem) >= 0);\n  });\n  if (!hits.length) throw new Error('分类「' + val + '」下暂时没有书目，换一个分类试试');\n  return hits;\n}",
+    "search": {
+      "script": "searchBooks",
+      "fields": {
+        "name": "$.name",
+        "author": "$.author",
+        "kind": "= str($.era) + (str($.kind) == '' ? '' : ' · ' + str($.kind))",
+        "intro": "$.intro",
+        "bookUrl": "$.bookUrl",
+        "type": "text"
+      }
+    },
+    "explore": {
+      "script": "exploreBooks",
+      "menus": [
+        {
+          "title": "全部古籍（站内书目 200 本）",
+          "url": "全部"
+        },
+        {
+          "title": "四库部类"
+        },
+        {
+          "title": "经部",
+          "url": "部:经部"
+        },
+        {
+          "title": "史部",
+          "url": "部:史部"
+        },
+        {
+          "title": "子部",
+          "url": "部:子部"
+        },
+        {
+          "title": "集部",
+          "url": "部:集部"
+        },
+        {
+          "title": "常见类别"
+        },
+        {
+          "title": "小说家类（31 本）",
+          "url": "类:小说家类"
+        },
+        {
+          "title": "正史类（23 本）",
+          "url": "类:正史类"
+        },
+        {
+          "title": "医家类（21 本）",
+          "url": "类:医家类"
+        },
+        {
+          "title": "杂家类（18 本）",
+          "url": "类:杂家类"
+        },
+        {
+          "title": "道家类（15 本）",
+          "url": "类:道家类"
+        },
+        {
+          "title": "儒家类（15 本）",
+          "url": "类:儒家类"
+        },
+        {
+          "title": "兵家类（13 本）",
+          "url": "类:兵家类"
+        },
+        {
+          "title": "术数类（10 本）",
+          "url": "类:术数类"
+        },
+        {
+          "title": "别集类（8 本）",
+          "url": "类:别集类"
+        },
+        {
+          "title": "词曲类（4 本）",
+          "url": "类:词曲类"
+        },
+        {
+          "title": "杂史类（4 本）",
+          "url": "类:杂史类"
+        },
+        {
+          "title": "地理类（4 本）",
+          "url": "类:地理类"
+        },
+        {
+          "title": "编年类（3 本）",
+          "url": "类:编年类"
+        },
+        {
+          "title": "春秋类（3 本）",
+          "url": "类:春秋类"
+        },
+        {
+          "title": "法家类（3 本）",
+          "url": "类:法家类"
+        },
+        {
+          "title": "诗文评类（3 本）",
+          "url": "类:诗文评类"
+        },
+        {
+          "title": "按朝代"
+        },
+        {
+          "title": "先秦（38 本）",
+          "url": "朝:先秦"
+        },
+        {
+          "title": "明代（37 本）",
+          "url": "朝:明代"
+        },
+        {
+          "title": "清代（32 本）",
+          "url": "朝:清代"
+        },
+        {
+          "title": "宋代（22 本）",
+          "url": "朝:宋代"
+        },
+        {
+          "title": "唐代（20 本）",
+          "url": "朝:唐代"
+        },
+        {
+          "title": "两汉（18 本）",
+          "url": "朝:两汉"
+        },
+        {
+          "title": "魏晋（11 本）",
+          "url": "朝:魏晋"
+        },
+        {
+          "title": "南北朝（11 本）",
+          "url": "朝:南北朝"
+        },
+        {
+          "title": "元代（5 本）",
+          "url": "朝:元代"
+        }
+      ],
+      "fields": {
+        "name": "$.name",
+        "author": "$.author",
+        "kind": "= str($.era) + (str($.kind) == '' ? '' : ' · ' + str($.kind))",
+        "intro": "$.intro",
+        "bookUrl": "$.bookUrl",
+        "type": "text"
+      }
+    },
+    "detail": {
+      "let": {
+        "tags": "= selAll('.book-tag span@text')",
+        "chapters": "= selAll('a[href^=\"/guwen/bookv_\"]')"
+      },
+      "fail": "= len(chapters) > 0 ? '' : '这一本没有取到章节目录：站内条目可能已失效，或刚才请求太密被限流返回了空页 —— 等十几秒再刷新，或换一本'",
+      "fields": {
+        "name": "= htmlDecode(trim(default(sel('h1 b@text'), '')))",
+        "author": "= htmlDecode(trim(default(get(tags, 0, ''), '')))",
+        "intro": "= htmlDecode(trim(default(sel('meta[name=\"description\"]@content'), '')))",
+        "kind": "= join(compact([htmlDecode(trim(default(get(tags, 1, ''), ''))), htmlDecode(trim(default(get(tags, 2, ''), '')))]), ' · ')",
+        "wordCount": "= str(len(chapters)) + ' 章'",
+        "lastChapter": "= htmlDecode(trim(default(last(selAll('a[href^=\"/guwen/bookv_\"]@text')), '')))",
+        "tocUrl": "= baseUrl"
+      }
+    },
+    "toc": {
+      "list": "a[href^='/guwen/bookv_']",
+      "fail": "= len(selAll('a[href^=\"/guwen/bookv_\"]')) > 0 ? '' : '目录是空的：这一本可能已下架，或刚才被限流返回了空页 —— 等十几秒再刷新'",
+      "fields": {
+        "title": "= htmlDecode(trim(default(sel('@text'), '')))",
+        "url": "@href"
+      }
+    },
+    "content": {
+      "text": ".contson@text",
+      "fail": "= len(trim(default(sel('.contson@text'), ''))) > 0 ? '' : '这一章没有取到正文：站点偶尔会返回空页或被限流 —— 等十几秒再翻一次；若每章都如此，可能是页面改版'",
+      "replace": [
+        {
+          "pattern": "　+"
+        }
+      ]
+    }
+  },
+  {
+    "sourceFormat": "native",
+    "version": 1,
+    "name": "必去小说·网文",
+    "url": "http://www.ibiquw.org",
+    "group": "小说",
+    "type": "text",
+    "rate": "3/1000",
+    "comment": "必去小说网（ibiquw.org）免费网文，老牌笔趣阁系 CMS，页面声明 UTF-8。四条实测约束：1) 站内搜索是 GET /modules/article/search.php?searchkey=关键词，关键词必须按 UTF-8 编码（同一接口按 GBK 编码发过去会返回榜单页而不是结果页），一次最多返回 100 条且 &page= 无效（第 1、2 页返回完全相同的条目），所以搜索地址不写 page，翻页只在发现页有；2) 发现页分类是真翻页：/xs/编号-default-0-0-0-0-0-0-页码.html，每页 20 本、每类最多 50 页（页面写着「检索到符合条件的小说共有1000部」），编号 1玄幻 2仙侠 3都市 4军史 5网游 6科幻 7灵异 8言情 9其他 0全本；分类页条目在 .sitebox dl 里，榜单页（/xs/top.html）是另一种结构（.toplist li + p.s1~s5），所以榜单分类自带一套 list/fields；3) 目录不用翻页：书页一页列全部章节，实测最长的一本 6528 章、单页 662KB 都在 .book_list 里；章节 href 是相对地址（41992425.html），靠书页地址结尾的斜杠补全；4) 正文在 div.contentbox，用 br 分段（引擎把 br 转换行）、段首是四个不间断空格，正文块内没有站点广告；正文页底部的「下一页」是回目录／下一章的导航，不是本章分页，整章一次取完。详情页字段走页面自带的 og:novel 系列 meta（书名/作者/类别/连载状态/最新章节/更新时间）与 og:description、og:image。限流：顺序 12 次搜索全 200、单次约 0.7 秒，书页可能大到 662KB，rate 写 3/1000；只支持 http（同一地址 https 直接连不上）。边界：站内偏新书与断更老书，经典书常被同名蹭名作顶掉（搜「斗破苍穹」只回「全职文豪：开头搬运斗破苍」这类），这种情况换别的源",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Referer": "http://www.ibiquw.org/",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    },
+    "search": {
+      "url": "/modules/article/search.php?searchkey={{urlencode(key)}}",
+      "list": ".toplist li",
+      "fields": {
+        "name": "p.s1 a@text",
+        "bookUrl": "p.s1 a@href",
+        "author": "p.s3@text",
+        "kind": "p.s5@text",
+        "lastChapter": "p.s2 a@text",
+        "wordCount": "= str(round(int(default(sel('p.s4@text'), '0'), 0) / 10, 1)) + '万字'",
+        "type": "text"
+      }
+    },
+    "explore": {
+      "menus": [
+        {
+          "title": "按分类（每页 20 本，可翻 50 页）"
+        },
+        {
+          "title": "玄幻",
+          "url": "/xs/1-default-0-0-0-0-0-0-{{page}}.html"
+        },
+        {
+          "title": "仙侠",
+          "url": "/xs/2-default-0-0-0-0-0-0-{{page}}.html"
+        },
+        {
+          "title": "都市",
+          "url": "/xs/3-default-0-0-0-0-0-0-{{page}}.html"
+        },
+        {
+          "title": "军史",
+          "url": "/xs/4-default-0-0-0-0-0-0-{{page}}.html"
+        },
+        {
+          "title": "网游",
+          "url": "/xs/5-default-0-0-0-0-0-0-{{page}}.html"
+        },
+        {
+          "title": "科幻",
+          "url": "/xs/6-default-0-0-0-0-0-0-{{page}}.html"
+        },
+        {
+          "title": "灵异",
+          "url": "/xs/7-default-0-0-0-0-0-0-{{page}}.html"
+        },
+        {
+          "title": "言情",
+          "url": "/xs/8-default-0-0-0-0-0-0-{{page}}.html"
+        },
+        {
+          "title": "其他",
+          "url": "/xs/9-default-0-0-0-0-0-0-{{page}}.html"
+        },
+        {
+          "title": "全本完本",
+          "url": "/xs/0-default-0-0-0-0-2-0-{{page}}.html"
+        },
+        {
+          "title": "最近更新",
+          "url": "/xs/0-default-0-0-0-0-0-0-{{page}}.html"
+        },
+        {
+          "title": "榜单（另一种页面结构）"
+        },
+        {
+          "title": "总点击榜",
+          "url": "/xs/top.html",
+          "list": ".toplist li",
+          "fields": {
+            "name": "p.s1 a@text",
+            "bookUrl": "p.s1 a@href",
+            "author": "p.s3@text",
+            "kind": "p.s5@text",
+            "lastChapter": "p.s2 a@text",
+            "wordCount": "= str(round(int(default(sel('p.s4@text'), '0'), 0) / 10, 1)) + '万字'",
+            "type": "text"
+          }
+        }
+      ],
+      "list": ".sitebox dl",
+      "fields": {
+        "name": "dd h3 a@text",
+        "bookUrl": "dt a@href",
+        "author": ".book_other span@text",
+        "intro": "= trim(replace(replace(default(sel('.book_des@text'), ''), '《[^》]*》是作者[\\s\\S]*', ''), '\\s+', ' '))",
+        "lastChapter": ".book_other a@text",
+        "coverUrl": "dt a img@src",
+        "kind": "= trim(replace(default(sel('title@text'), ''), '小说[\\s\\S]*', ''))",
+        "type": "text"
+      }
+    },
+    "detail": {
+      "let": {
+        "chs": "= selAll('.book_list li a')"
+      },
+      "fail": "= len(chs) > 0 ? '' : '这本书没有取到章节目录：书页可能已被站方下架，或刚才请求太密被拦了 —— 等十几秒再刷新，或到发现页换个分类找同名书'",
+      "fields": {
+        "name": "= htmlDecode(trim(default(sel('meta[property=\"og:novel:book_name\"]@content'), sel('h1@text'))))",
+        "author": "= htmlDecode(trim(default(sel('meta[property=\"og:novel:author\"]@content'), '')))",
+        "intro": "= htmlDecode(trim(default(sel('meta[property=\"og:description\"]@content'), sel('meta[name=\"description\"]@content'))))",
+        "kind": "= join(compact([htmlDecode(trim(default(sel('meta[property=\"og:novel:category\"]@content'), ''))), htmlDecode(trim(default(sel('meta[property=\"og:novel:status\"]@content'), '')))]), ' · ')",
+        "lastChapter": "= htmlDecode(trim(default(sel('meta[property=\"og:novel:latest_chapter_name\"]@content'), '')))",
+        "wordCount": "= str(len(chs)) + ' 章'",
+        "coverUrl": "= htmlDecode(trim(default(sel('meta[property=\"og:image\"]@content'), sel('img@src'))))",
+        "tocUrl": "= baseUrl"
+      }
+    },
+    "toc": {
+      "list": ".book_list li a",
+      "fail": "= len(selAll('.book_list li a')) > 0 ? '' : '目录是空的：这一本可能已下架或刚才被拦 —— 等十几秒再刷新，或换一本'",
+      "fields": {
+        "title": "= htmlDecode(trim(replace(str(sel('@text')), '[\\s\\u00a0]+', ' ')))",
+        "url": "@href"
+      }
+    },
+    "content": {
+      "text": ".contentbox@text",
+      "fail": "= contains(body, 'contentbox') ? '' : '这一章没有取到正文：站点偶尔会返回空页或被拦 —— 等十几秒再翻一次；若每章都如此，可能是页面改版'",
+      "replace": [
+        {
+          "pattern": "[ 　]+"
+        },
+        {
+          "pattern": "^ +",
+          "flags": "gm"
+        }
+      ]
+    }
+  },
+  {
+    "sourceFormat": "native",
+    "version": 1,
+    "name": "顶峰小说·女生文学",
+    "url": "https://www.dmx5.cc",
+    "group": "小说",
+    "type": "text",
+    "rate": "3/1000",
+    "comment": "来自用户导出的书源库（原规则名「💐 女生文学」），转换后按原生规则在同一批页面上复核过：搜索是 POST 表单 /search/book（body searchkey=关键词，按 GBK 编码发过去），关键词「我的」返回 122 条、其中 115 条标题含关键词；书页一页给全目录 479 章（原规则没有目录翻页）；中段章节正文 1639 字、中文占比 87%，正文块 div.yd_text2 内没有站点广告；详情页字段走页面自带的 og:novel 系列 meta。原规则里的封面地址是从书页 href 里用正则抠数字ID拼 /files/article/image/ 的路子，转换时不可靠已去掉（不写 coverUrl，用站内搜索返回里能直接取到的字段）；章节标题与正文尾部的「正文卷/VIP卷/(求票)一类噪声，原规则用一串 ## 正则净化，这里保留为正文 replace 规则。小站抗压差，rate 写 3/1000",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Referer": "https://www.dmx5.cc/",
+      "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
+    },
+    "search": {
+      "url": "https://www.dmx5.cc/search/book",
+      "method": "POST",
+      "body": "searchkey={{urlencode(key)}}",
+      "charset": "gbk",
+      "list": ".booklist li",
+      "fields": {
+        "name": ".mz@text",
+        "bookUrl": "a@href",
+        "type": "text",
+        "author": ".zz@text",
+        "kind": ".zt,.sj@text",
+        "lastChapter": ".zj@text"
+      }
+    },
+    "toc": {
+      "list": ".mulu li a",
+      "fields": {
+        "title": "@text",
+        "url": "@href"
+      }
+    },
+    "content": {
+      "text": "div.yd_text2@text",
+      "replace": [
+        {
+          "pattern": "[  　]+"
+        },
+        {
+          "pattern": "^ +",
+          "flags": "gm"
+        }
+      ]
+    },
+    "detail": {
+      "fields": {
+        "name": "= htmlDecode(trim(default(sel('meta[property=\"og:novel:book_name\"]@content'), '')))",
+        "author": "= htmlDecode(trim(default(sel('meta[property=\"og:novel:author\"]@content'), '')))",
+        "intro": "= htmlDecode(trim(default(sel('meta[property=\"og:description\"]@content'), sel('meta[name=\"description\"]@content'))))",
+        "kind": "= join(compact([htmlDecode(trim(default(sel('meta[property=\"og:novel:category\"]@content'), ''))), htmlDecode(trim(default(sel('meta[property=\"og:novel:status\"]@content'), '')))]), ' · ')",
+        "lastChapter": "= htmlDecode(trim(default(sel('meta[property=\"og:novel:latest_chapter_name\"]@content'), '')))",
+        "coverUrl": "= htmlDecode(trim(default(sel('meta[property=\"og:image\"]@content'), '')))",
+        "tocUrl": "= baseUrl"
+      }
+    }
+  },
+  {
+    "sourceFormat": "native",
+    "version": 1,
+    "name": "七猫中文网·网文",
+    "url": "https://www.qimao.com",
+    "group": "小说",
+    "type": "text",
+    "rate": "3/1000",
+    "comment": "七猫中文网（www.qimao.com）免费网文书库。四条实测约束：1) 搜索走站内 JSON /api/search/result?keyword=&page=，桌面 UA + Referer 即可，每页 15 本，page 真翻页；2) 发现走 /api/classify/book-list，参数 channel/category1/category2/words/update_time/is_over/order/page，分类树来自 /api/classify/select-option；3) 目录走 /api/book/chapter-list?book_id=，章址拼成 /shuku/{bookId}-{chapterId}/，is_vip=1 的章在目录标「APP/登录」——官网对连载 VIP 章常不吐正文，完结书部分章网页仍可读，不做验签解密、不做付费绕过；4) 正文取章节页 div.article 文本（免费章与可公开章），空 article 即提示去官网/APP。详情用书页 HTML（书名/作者/简介/封面/标签）。限流 rate 3/1000",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Referer": "https://www.qimao.com/",
+      "Accept": "application/json,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9"
+    },
+    "js": "function qmBookId(url) {\n  var m = String(url == null ? '' : url).match(/\\/shuku\\/(\\d+)/);\n  return m ? m[1] : '';\n}\nfunction qmChapterId(url) {\n  var m = String(url == null ? '' : url).match(/\\/shuku\\/\\d+-(\\d+)/);\n  return m ? m[1] : '';\n}\nfunction qmBookUrl(id) {\n  return 'https://www.qimao.com/shuku/' + String(id) + '/';\n}\nfunction qmChapterUrl(bookId, chapterId) {\n  return 'https://www.qimao.com/shuku/' + String(bookId) + '-' + String(chapterId) + '/';\n}\nfunction qmCover(u) {\n  var s = String(u == null ? '' : u).replace(/&amp;/g, '&').trim();\n  if (!s) return '';\n  if (s.indexOf('//') === 0) s = 'https:' + s;\n  return s;\n}\nfunction qmKind(a, b, status) {\n  var parts = [];\n  if (a) parts.push(String(a));\n  if (b && String(b) !== String(a)) parts.push(String(b));\n  if (status) parts.push(String(status));\n  return parts.join(' · ');\n}\n",
+    "search": {
+      "url": "https://www.qimao.com/api/search/result?keyword={{urlencode(key)}}&page={{page}}",
+      "fail": "= data ? (default(data.errors, '') != '' ? '七猫搜索：' + str(default(data.errors.title, data.errors.details || '接口失败')) : '') : '七猫搜索返回了非 JSON 内容'",
+      "list": "$.data.search_list[*]",
+      "fields": {
+        "name": "= trim(htmlDecode(default($.title, '')))",
+        "author": "= trim(htmlDecode(default($.author, '')))",
+        "intro": "= trim(htmlDecode(default($.intro, '')))",
+        "coverUrl": "= qmCover(default($.image_link, ''))",
+        "kind": "= qmKind($.category2_name, '', default($.is_over_txt, ''))",
+        "wordCount": "= trim(htmlDecode(default($.words_num, '')))",
+        "lastChapter": "= trim(htmlDecode(default($.latest_chapter_title, '')))",
+        "type": "text",
+        "bookUrl": "= default($.read_url, '') != '' ? $.read_url : qmBookUrl($.book_id)"
+      }
+    },
+    "explore": {
+      "menus": [
+        {
+          "title": "书库精选"
+        },
+        {
+          "title": "全部（按点击）",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=a&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "最近更新",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=a&category2=a&words=a&update_time=a&is_over=a&order=update_time&page={{page}}"
+        },
+        {
+          "title": "已完结",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=a&category2=a&words=a&update_time=a&is_over=1&order=click&page={{page}}"
+        },
+        {
+          "title": "连载中",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=a&category2=a&words=a&update_time=a&is_over=0&order=update_time&page={{page}}"
+        },
+        {
+          "title": "都市"
+        },
+        {
+          "title": "都市·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=203&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "都市高武",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=203&category2=219&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "明星娱乐",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=203&category2=46&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "乡村生活",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=203&category2=48&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "玄幻奇幻"
+        },
+        {
+          "title": "玄幻奇幻·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=202&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "东方玄幻",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=202&category2=37&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "异世大陆",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=202&category2=39&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "西方奇幻",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=202&category2=41&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "武侠仙侠"
+        },
+        {
+          "title": "武侠仙侠·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=205&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "古典仙侠",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=205&category2=52&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "传统武侠",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=205&category2=54&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "上古洪荒",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=205&category2=38&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "现代言情"
+        },
+        {
+          "title": "现代言情·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=1&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "总裁豪门",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=1&category2=8&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "青春校园",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=1&category2=275&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "都市奇幻",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=1&category2=279&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "古代言情"
+        },
+        {
+          "title": "古代言情·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=2&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "种田经商",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=2&category2=16&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "宫闱宅斗",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=2&category2=209&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "权谋天下",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=2&category2=280&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "幻想言情"
+        },
+        {
+          "title": "幻想言情·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=4&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "玄幻仙侠",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=4&category2=21&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "未来科幻",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=4&category2=22&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "无限快穿",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=4&category2=283&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "末世求生",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=4&category2=284&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "奇闻异事"
+        },
+        {
+          "title": "奇闻异事·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=204&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "侦探推理",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=204&category2=228&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "恐怖灵异",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=204&category2=229&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "寻宝探险",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=204&category2=230&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "奇门秘术",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=204&category2=231&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "科幻"
+        },
+        {
+          "title": "科幻·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=64&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "星际机甲",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=64&category2=65&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "末世危机",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=64&category2=66&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "未来幻想",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=64&category2=67&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "军事"
+        },
+        {
+          "title": "军事·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=60&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "现代军事",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=60&category2=61&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "抗战烽火",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=60&category2=62&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "谍战特工",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=60&category2=63&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "战争幻想",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=60&category2=227&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "历史"
+        },
+        {
+          "title": "历史·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=56&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "穿越历史",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=56&category2=57&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "架空历史",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=56&category2=58&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "历史传记",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=56&category2=59&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "游戏竞技"
+        },
+        {
+          "title": "游戏竞技·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=200&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "网游电竞",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=200&category2=25&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "运动竞技",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=200&category2=27&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "游戏"
+        },
+        {
+          "title": "游戏·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=75&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "电子竞技",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=75&category2=78&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "虚拟网游",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=75&category2=232&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "N次元"
+        },
+        {
+          "title": "N次元·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=207&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "原生幻想",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=207&category2=238&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "衍生同人",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=207&category2=239&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "轻小说",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=207&category2=310&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "文学艺术"
+        },
+        {
+          "title": "文学艺术·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=240&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "人物传记",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=240&category2=247&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "散文随笔",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=240&category2=248&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "诗词歌赋",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=240&category2=267&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "评论研究",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=240&category2=268&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "人文社科"
+        },
+        {
+          "title": "人文社科·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=241&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "历史文化",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=241&category2=250&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "心理读物",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=241&category2=272&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "科普读物",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=241&category2=273&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "战争军事",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=241&category2=292&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "经管励志"
+        },
+        {
+          "title": "经管励志·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=242&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "成功有道",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=242&category2=296&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "励志鸡汤",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=242&category2=297&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "理财经济",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=242&category2=298&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "企业管理",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=242&category2=299&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "经典文学"
+        },
+        {
+          "title": "经典文学·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=243&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "中国文学",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=243&category2=255&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "外国文学",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=243&category2=256&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "出版小说"
+        },
+        {
+          "title": "出版小说·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=257&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "古代言情",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=257&category2=259&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "现代言情",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=257&category2=260&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "科幻未来",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=257&category2=261&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "悬疑推理",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=257&category2=262&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "少儿教育"
+        },
+        {
+          "title": "少儿教育·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=258&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "少儿读物",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=258&category2=269&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "亲子教育",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=258&category2=270&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "衍生言情"
+        },
+        {
+          "title": "衍生言情·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=277&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "次元衍生",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=277&category2=286&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "经典衍生",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=277&category2=287&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "现实题材"
+        },
+        {
+          "title": "现实题材·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=306&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "现实百态",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=306&category2=308&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "现实主义"
+        },
+        {
+          "title": "现实主义·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=307&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "现实故事",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=307&category2=309&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "体育"
+        },
+        {
+          "title": "体育·全部",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=206&category2=a&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "其他竞技",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=206&category2=234&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "篮球风云",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=206&category2=235&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        },
+        {
+          "title": "足球天下",
+          "url": "https://www.qimao.com/api/classify/book-list?channel=a&category1=206&category2=236&words=a&update_time=a&is_over=a&order=click&page={{page}}"
+        }
+      ],
+      "fail": "= data ? (default(data.errors, '') != '' ? '七猫发现：' + str(default(data.errors.title, data.errors.details || '接口失败')) : '') : '七猫发现返回了非 JSON 内容'",
+      "list": "$.data.book_list[*]",
+      "fields": {
+        "name": "= trim(htmlDecode(default($.title, '')))",
+        "author": "= trim(htmlDecode(default($.author, '')))",
+        "intro": "= trim(htmlDecode(default($.intro, '')))",
+        "coverUrl": "= qmCover(default($.image_link, ''))",
+        "kind": "= qmKind($.category2_name, '', default($.is_over_txt, ''))",
+        "wordCount": "= trim(htmlDecode(default($.words_num, '')))",
+        "lastChapter": "= trim(htmlDecode(default($.latest_chapter_title, '')))",
+        "type": "text",
+        "bookUrl": "= default($.read_url, '') != '' ? $.read_url : qmBookUrl($.book_id)"
+      }
+    },
+    "detail": {
+      "fail": "= len(trim(default(sel('.book-information .title .txt@text'), ''))) > 0 ? '' : '七猫详情页没有取到书名：可能已下架或刚才请求被拦，稍后再试'",
+      "fields": {
+        "name": "= trim(default(sel('.book-information .title .txt@text'), ''))",
+        "author": "= trim(default(sel('.author-name@text'), sel('.sub-title a@text')))",
+        "intro": "= trim(default(sel('.intro@text'), ''))",
+        "coverUrl": "= qmCover(default(sel('.wrap-pic img@src'), ''))",
+        "kind": "= join(selAll('.tags-wrap .qm-tag@text'), ' · ')",
+        "lastChapter": "= trim(default(sel('.update-chapter-title@text'), ''))",
+        "wordCount": "= trim(replace(default(sel('.statistics-wrap span.txt@text'), ''), '\\s+', ''))",
+        "tocUrl": "= 'https://www.qimao.com/api/book/chapter-list?book_id=' + qmBookId(baseUrl)"
+      }
+    },
+    "toc": {
+      "fail": "= data ? (default(data.errors, '') != '' ? '七猫目录：' + str(default(data.errors.title, data.errors.details || '接口失败')) : (len(default(data.data.chapters, [])) > 0 ? '' : '七猫目录为空')) : '七猫目录返回了非 JSON 内容'",
+      "list": "$.data.chapters[*]",
+      "fields": {
+        "title": "= trim(htmlDecode(default($.title, '第' + str(default($.index, '')) + '章')))",
+        "url": "= qmChapterUrl(qmBookId(book.bookUrl), $.id)",
+        "tag": "= str(default($.is_vip, '0')) == '1' ? 'APP/登录' : ''"
+      }
+    },
+    "content": {
+      "text": ".article@text",
+      "fail": "= len(trim(default(sel('.article@text'), ''))) > 0 ? '' : '这一章没有网页正文：连载 VIP/需登录章官网常不返回内容（目录会标 APP/登录），请换免费章或到七猫 App 阅读；不做付费绕过'",
+      "replace": [
+        {
+          "pattern": "[\\u00a0\\u3000]+"
+        },
+        {
+          "pattern": "^ +",
+          "flags": "gm"
+        }
+      ]
+    }
+  }
+]

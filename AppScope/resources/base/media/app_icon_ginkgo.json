@@ -1,0 +1,6 @@
+{
+  "layered-image": {
+    "background": "$media:app_icon_ginkgo_background",
+    "foreground": "$media:app_icon_ginkgo_foreground"
+  }
+}

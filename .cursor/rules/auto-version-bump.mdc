@@ -1,0 +1,18 @@
+---
+description: 产品改动完成后自动升版并同步 CHANGELOG / 关于页
+alwaysApply: true
+---
+
+# 自动升版
+
+完成一轮**用户可感知**的功能、交互或缺陷修复后（不是纯问答、也不是只改说明文字），在收尾时执行：
+
+```bash
+node scripts/bump-version.cjs --auto
+```
+
+- 默认根据 git 提交说明生成更新日志并升 patch；含 `feat:` 升 minor，含 breaking/`!:` 升 major。
+- 若本轮改动尚未提交、希望手写说明：`node scripts/bump-version.cjs -m "说明1" -m "说明2"`。
+- 不要为「只改文档 / 只改注释 / 只讨论方案」升版。
+- 不要再手工改 `AppScope/app.json5` 的 versionName/versionCode；以脚本结果为准。
+- 升版只同步 App 与关于页数据；不要因此去部署 `121.196.223.85`，除非用户明确要求更新公网上架隐私页。

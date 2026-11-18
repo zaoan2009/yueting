@@ -1,0 +1,383 @@
+# HarmonyOS 代码混淆规则
+
+# ─── 启用混淆 ───
+# 书源引擎读取用户 JSON、动态表达式和脚本桥接属性，字段名属于运行时协议。
+# 不混淆属性名：静态白名单无法覆盖导入书源及上游新增的协议字段。
+# 保留下方顶层、文件名和导出符号混淆。
+-enable-toplevel-obfuscation
+-enable-filename-obfuscation
+-enable-export-obfuscation
+
+# 名称缓存（增量构建）
+-enable-name-cache
+-print-namecache obfuscation-cache.json
+
+# 动态 import 的模块命名空间访问不会随导出符号同步改名。
+# 保留 ReaderKit 和阅读替换规则的延迟加载入口。
+-keep-global-name
+  EpubParserService
+  createEpubReaderController
+  createEpubReaderBuilder
+  LocalRuleQuickJsRequest
+  LocalRuleQuickJsRuntime
+
+-keep-property-name
+  EpubParserService
+  createEpubReaderController
+  createEpubReaderBuilder
+  LocalRuleQuickJsRequest
+  LocalRuleQuickJsRuntime
+
+# ─── 保留 JSON 序列化/反序列化的属性名 ───
+# 这些属性来自外部 JSON（Legado 书源格式）或本地持久化，
+# 通过 JSON.parse / JSON.stringify 访问，混淆器无法静态追踪，必须显式保留。
+-keep-property-name
+  # Native rule schema and Cangjie tokenizer wire format.
+  engine
+  nativeRules
+  nativeRulesJson
+  nativeRulesValid
+  nativeSearch
+  nativeBaseUrl
+  rules
+  baseUrl
+  description
+  settings
+  discoveryEnabled
+  locked
+  pinned
+  order
+  version
+  discover
+  search
+  explore
+  detail
+  toc
+  content
+  format
+  bindings
+  request
+  list
+  fields
+  next
+  maxPages
+  method
+  headers
+  form
+  body
+  name
+  value
+  kind
+  attribute
+  index
+  transforms
+  required
+  op
+  pattern
+  replacement
+  group
+  amount
+  title
+  url
+  tokens
+  type
+  text
+  attributes
+  selfClosing
+  start
+  end
+  error
+  tokenizeHtml
+  # Huawei IAP signed JSON payload fields (never obfuscate wire names).
+  alg
+  typ
+  x5c
+  crit
+  jwsSubscriptionStatus
+  jwsPurchaseOrder
+  signedTime
+  purchaseOrderRevocationReasonCode
+  revocationTime
+  price
+  currency
+  environment
+  applicationId
+  packageName
+  subGroupId
+  lastSubscriptionStatus
+  status
+  expiresTime
+  lastPurchaseOrder
+  renewalInfo
+  autoRenewStatusCode
+  nextRenewPeriodProductId
+  productId
+  productType
+  purchaseToken
+  purchaseOrderId
+  finishStatus
+  purchaseTime
+  # Display-only membership cache must survive process and release upgrades.
+  expiresAt
+  autoRenew
+  verifiedAt
+  # Bounded on-device diagnostic log, stable across release upgrades
+  id
+  time
+  level
+  stage
+  message
+  # Medal preferences and backup JSON
+  medals
+  selectedMedalId
+  ownerKey
+  earnedSeconds
+  statsBaseline
+  legacyClaimed
+  lastOwnerKey
+  profiles
+  awards
+  medalId
+  unlockedAt
+  historical
+  # Huawei account persisted identity
+  unionID
+  openID
+  loginAt
+  nickName
+  avatarFile
+  # Local automatic-backup schedule must survive release upgrades
+  intervalDays
+  lastSuccessAt
+  digest
+  nextCheckAt
+  failures
+  errorCode
+  systemCode
+  trusted
+  needsDecision
+  # System / personal cloud backup snapshot fields
+  exportedAt
+  preferences
+  stats
+  ruleSources
+  favorites
+  history
+  lastPlayed
+  progresses
+  skipConfigs
+  descendingBookIds
+  colorMode
+  materialStyle
+  accentColor
+  defaultTab
+  autoPlayOnLaunch
+  audioInterruptMode
+  audioAutoResume
+  defaultPlaybackSpeed
+  homeGridColumns
+  preloadChapters
+  # Reading-session JSON must survive release builds and upgrades
+  sessionId
+  archived
+  startedAt
+  endedAt
+  start
+  end
+  position
+  # Reading backup and persisted reading/speech positions
+  reading
+  positions
+  settings
+  speechPositions
+  speechSpeed
+  speechPerson
+  speechLanguage
+  speechFollow
+  resourceIndex
+  domPos
+  charOffset
+  pageOffset
+  fontSize
+  lineHeight
+  fontWeight
+  themeId
+  pageTurnMode
+  showReadingStatus
+  alwaysShowStatusBar
+  followSystemTheme
+  marginLeft
+  marginRight
+  marginTop
+  marginBottom
+  screenOnMinutes
+  bookId
+  chapterId
+  chapterTitle
+  progressMs
+  positionMs
+  chapterIndex
+  durationMs
+  updatedAt
+  # Legacy playback JSON aliases must remain readable during backup migration
+  h15
+  q11
+  c10
+  h26
+  m56
+  l50
+  n49
+  x47
+  u47
+  speed
+  listenSeconds
+  days
+  day
+  # Statistics disk snapshot envelope must survive release upgrades
+  revision
+  records
+  validationStatus
+  validationMessage
+  variable
+  # BookSource
+  bookSourceUrl
+  bookSourceName
+  bookSourceType
+  bookSourceGroup
+  bookSourceComment
+  enabled
+  enabledExplore
+  enabledCookieJar
+  searchUrl
+  exploreUrl
+  header
+  loginUrl
+  loginUi
+  loginCheckJs
+  bookUrlPattern
+  variableComment
+  jsLib
+  customButton
+  eventListener
+  exploreScreen
+  coverDecodeJs
+  respondTime
+  customOrder
+  isLocked
+  isPinned
+  weight
+  concurrentRate
+  ruleSearch
+  ruleToc
+  ruleContent
+  ruleBookInfo
+  ruleExplore
+  ruleReview
+  lastUpdateTime
+  subscriptionUrl
+  # SearchRule / ExploreRule
+  bookList
+  nextPageUrl
+  coverUrl
+  bookUrl
+  intro
+  kind
+  lastChapter
+  wordCount
+  checkKeyWord
+  updateTime
+  # TocRule
+  chapterList
+  chapterName
+  chapterUrl
+  nextTocUrl
+  isVip
+  isPay
+  isVolume
+  duration
+  preUpdateJs
+  formatJs
+  # ContentRule
+  content
+  audioUrl
+  nextContentUrl
+  replaceRegex
+  sourceRegex
+  webJs
+  # BookInfoRule
+  init
+  canReName
+  downloadUrls
+  tocUrl
+  # ReviewRule
+  reviewList
+  avatar
+  reviewUrl
+  # Book
+  # Persisted metadata and legacy release aliases (v0.1.48 and earlier).
+  latestChapterTitle
+  tocComplete
+  coverFromDetail
+  coverFallback
+  i36
+  b40
+  i40
+  j40
+  id
+  contentType
+  title
+  author
+  narrator
+  cover
+  category
+  totalDuration
+  chapterCount
+  rating
+  tags
+  chapters
+  sourceUrl
+  variables
+  skipIntro
+  skipOutro
+  # Chapter
+  index
+  source
+  originSourceValue
+  # AudioSource
+  type
+  value
+  # SearchResult
+  sourceName
+  # HomeBlockSection
+  books
+  moreUrl
+  layout
+  # SourceSubscription
+  count
+  lastUpdate
+  # TocItem
+  url
+  name
+  # Talebook NAS API JSON fields
+  err
+  msg
+  sys
+  version
+  total
+  book
+  manifest
+  edition
+  files
+  format
+  href
+  comments
+  img
+  book_id
+  chapter_count
+  number
+  duration_ms
+  audio_url
+
+# ─── 保留文件名（避免资源路径问题） ───
+# 注：-enable-filename-obfuscation 已启用，但 resources/rawfile 等资源引用
+# 在代码中以字符串出现，混淆器可处理。如遇问题可注释掉 -enable-filename-obfuscation。
